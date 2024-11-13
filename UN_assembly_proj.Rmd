@@ -1,0 +1,221 @@
+---
+title: "UN_assembly_proj"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    
+---
+
+```{r setup, include=FALSE}
+# ignore the errors
+knitr::opts_chunk$set(error = TRUE)
+```
+
+
+# Dataset
+
+```{r}
+assembly <- readr::read_csv("2024_09_12_ga_resolutions_voting.csv")
+head(assembly)
+```
+
+```{r}
+unique(assembly['ms_name'])
+```
+
+Country name descrepancies: Yogoslavia republik, USSR, Ukranian SSR, Belorussian SSR, Turkey and Turkiye, East and West Germany, Former Yugoslav Republic of Macedonia, Serbia and Montenegro, etc.
+
+
+```{r}
+str(assembly)
+```
+
+For now, working on the year 2020. Might change after the research
+```{r}
+# keeping year 2020
+assembly2020 <- assembly |>
+  filter(lubridate::year(date) == 2020)
+```
+
+```{r}
+unique(assembly2020['agenda_title'])
+```
+
+```{r}
+unique(filter(assembly2020, agenda_title == 'The situation in the Middle East.'))
+#about Syria
+```
+
+
+Subsetting by the topic:
+```{r}
+count(filter(assembly2020, subjects == 'PALESTINE QUESTION')) 
+assembly2020_pal <- assembly2020 |> 
+  filter(subjects == 'PALESTINE QUESTION')
+
+```
+
+Getting unique assembly titles of Palestine topic
+```{r}
+unique(assembly2020_pal['title'])
+```
+
+
+Filtering the dataset:
+```{r}
+assembly2020_pal <- assembly2020_pal[c('ms_name', 'ms_vote', 'resolution', 
+                                       'title')]
+```
+
+
+```{r}
+# keeping rows where the vote is 'Yes'
+yes_votes2020_pal <- assembly2020_pal |> 
+  filter(ms_vote == "Y")
+```
+
+```{r}
+unique(yes_votes2020_pal['ms_name'])
+#149 countries voted yes at least once out of four assemblies
+```
+
+
+# Making network
+
+```{r}
+library(tidyverse)
+
+# making edges
+edges <- yes_votes2020_pal |>
+  group_by(resolution) |>
+  summarise(pairs = list(combn(ms_name, 2, simplify = FALSE))) |>
+  unnest(pairs) |>
+  mutate(country1 = map_chr(pairs, 1),
+         country2 = map_chr(pairs, 2)) |>
+  select(country1, country2)
+```
+
+
+```{r}
+# making weights
+weighted_edges <- edges %>%
+  group_by(country1, country2) %>%
+  summarise(weight = n(), .groups = 'drop')
+```
+
+`weight` here represents how many times a country voted yes together.
+
+```{r}
+# threshold because network is fully connected
+weighted_edges <- weighted_edges %>%
+  filter(weight >= 2) #include only edges where weight is 2 or more
+```
+
+
+```{r}
+# creating networks
+assembly_graph <- igraph::graph_from_data_frame(weighted_edges, directed = FALSE)
+
+# Add edge weights to the graph
+igraph::E(assembly_graph)$weight <- weighted_edges$weight
+```
+
+
+```{r}
+print(assembly_graph)
+```
+149 nodes (same as N0 unique countries). 10900 edges (142, 9899 after threshold)
+
+```{r}
+igraph::vertex_attr_names(assembly_graph)
+igraph::edge_attr_names(assembly_graph)
+```
+
+
+```{r}
+plot(assembly_graph, vertex.size = 10, 
+     vertex.label.cex = 0.5,
+     vertex.color = 'gray80',
+     edge.color = igraph::E(assembly_graph)$weight)
+```
+
+
+
+```{r}
+igraph::is.connected(assembly_graph)
+```
+The network is fully connected
+
+
+```{r}
+igraph::edge_density(assembly_graph)
+```
+Density is very big
+
+
+
+
+
+```{r}
+assembly_n <- snafun::to_network(assembly_graph)
+assembly_n
+```
+
+## Voting 'No' together
+
+```{r}
+# keeping rows where the vote is 'No'
+no_votes2020_pal <- assembly2020_pal |> 
+  filter(ms_vote == "N")
+```
+
+
+```{r}
+# making edges
+edges_n <- no_votes2020_pal |>
+  group_by(resolution) |>
+  summarise(pairs = list(combn(ms_name, 2, simplify = FALSE))) |>
+  unnest(pairs) |>
+  mutate(country1 = map_chr(pairs, 1),
+         country2 = map_chr(pairs, 2)) |>
+  select(country1, country2)
+
+# making weights
+weighted_edges_n <- edges_n %>%
+  group_by(country1, country2) %>%
+  summarise(weight = n(), .groups = 'drop')
+```
+
+
+```{r}
+# creating networks
+assembly_NO <- igraph::graph_from_data_frame(weighted_edges_n, directed = FALSE)
+
+# Add edge weights to the graph
+igraph::E(assembly_NO)$weight <- weighted_edges_n$weight
+```
+
+
+```{r}
+print(assembly_NO)
+```
+
+```{r}
+plot(assembly_NO, vertex.size = 10, 
+     vertex.label.cex = 0.5,
+     vertex.color = 'gray80',
+     edge.color = igraph::E(assembly_NO)$weight)
+```
+The 'No' graph looks a bit better.
+
+## Years 2020 and 2021
+
+
+GERGM: we can use weights and predict a continuous number (countries that voted together 4 times).
+
+
+
+
+
