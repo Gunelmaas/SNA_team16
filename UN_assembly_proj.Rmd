@@ -254,7 +254,6 @@ data <- data |>
 
 ```{r}
 # creating pairwise agreements
-# Step 1: Create pairwise agreements for each resolution
 agreement_scores <- data %>%
   group_by(resolution) %>%
   summarise(pairs = list(combn(ms_name, 2, simplify = FALSE)),
@@ -265,12 +264,12 @@ agreement_scores <- data %>%
          vote1 = purrr::map_chr(votes, 1),
          vote2 = purrr::map_chr(votes, 2),
          agreement = case_when(
-           vote1 == vote2 ~ 1,                              # Exact match (Y/Y, N/N, A/A)
+           vote1 == vote2 ~ 1,                    # Exact match (Y/Y, N/N, A/A)
            (vote1 == "Y" & vote2 == "A") | 
            (vote1 == "A" & vote2 == "Y") |
            (vote1 == "N" & vote2 == "A") | 
-           (vote1 == "A" & vote2 == "N") ~ 0.5,            # Partial match (Y/A, N/A)
-           TRUE ~ 0                                        # No agreement
+           (vote1 == "A" & vote2 == "N") ~ 0.5,         # Partial match (Y/A, N/A)
+           TRUE ~ 0                                    # No agreement
          )) %>%
   select(country1, country2, resolution, agreement)
 ```
@@ -303,6 +302,9 @@ igraph::E(UNGA_graph)$weight <- weighted_edges$weight
 print(UNGA_graph)
 ```
 
+The edge is this network is the level of agreement on votes. Weight - sum of agreement scores.
+
+
 ```{r}
 plot(UNGA_graph, 
      edge.width = igraph::E(UNGA_graph)$weight, 
@@ -320,37 +322,16 @@ igraph::degree_distribution(UNGA_graph)
 
 Selecting a threshold that reduces the density of your network to a desired level:
 ```{r}
-target_density <- 0.1
+#target_density <- 0.1
 
-while (igraph::edge_density(UNGA_graph) > target_density) {
+#while (igraph::edge_density(UNGA_graph) > target_density) {
   # Remove weakest edges 
-  weakest_edge <- igraph::E(UNGA_graph)[which.min(igraph::E(UNGA_graph)$weight)]
-  UNGA_graph <- igraph::delete_edges(UNGA_graph, weakest_edge)
-}
+#  weakest_edge <- igraph::E(UNGA_graph)[which.min(igraph::E(UNGA_graph)$weight)]
+#  UNGA_graph <- igraph::delete_edges(UNGA_graph, weakest_edge)
+#}
 ```
 
 
-```{r}
-plot(UNGA_graph, 
-     edge.width = igraph::E(UNGA_graph)$weight, 
-     vertex.size = 5, 
-     vertex.label.cex = 0.7)
-```
 
-```{r}
-igraph::is_connected(UNGA_graph)
-igraph::edge_density(UNGA_graph)
-igraph::degree_distribution(UNGA_graph)
-```
-
-```{r}
-
-node_degrees <- igraph::degree(UNGA_graph)
-
-plot(UNGA_graph, 
-     vertex.color = ifelse(node_degrees == 0, "red", "blue"), 
-     vertex.size = 5, 
-     vertex.label.cex = 0.7)
-```
 
 
