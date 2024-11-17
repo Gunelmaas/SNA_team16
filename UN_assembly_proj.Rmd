@@ -11,6 +11,8 @@ output:
 ```{r setup, include=FALSE}
 # ignore the errors
 knitr::opts_chunk$set(error = TRUE)
+
+library(dplyr)
 ```
 
 
@@ -35,9 +37,10 @@ str(assembly)
 For now, working on the year 2020. Might change after the research
 ```{r}
 # keeping year 2020
-assembly2020 <- assembly |>
+assembly2020 <- assembly %>%
   filter(lubridate::year(date) == 2020)
 ```
+
 
 ```{r}
 unique(assembly2020['agenda_title'])
@@ -231,6 +234,26 @@ data <- assembly %>%
 
 
 ```{r}
+unique(data['ms_name'])
+```
+
+
+```{r}
+#TÜRKİYE case
+data <- data %>%
+  mutate(country = stringr::str_replace(ms_name, "TURKEY", "TÜRKİYE"))
+```
+
+
+```{r}
+# NETHERLANDS (KINGDOM OF THE) case
+data %>%
+  filter(ms_name == c("NETHERLANDS (KINGDOM OF THE)", "NETHERLANDS"))
+```
+We will treat NETHERLANDS (KINGDOM OF THE) and NETHERLANDS as two separate countries.
+
+
+```{r}
 unique(data['subjects'])
 ```
 
@@ -244,7 +267,7 @@ data <- data |>
 
 
 ```{r}
-data <- data[c('ms_name', 'ms_vote', 'resolution', 
+data <- data[c('ms_code', 'ms_vote', 'resolution', 
                                        'title')]
 # deleting NV votes
 data <- data |> 
@@ -256,7 +279,7 @@ data <- data |>
 # creating pairwise agreements
 agreement_scores <- data %>%
   group_by(resolution) %>%
-  summarise(pairs = list(combn(ms_name, 2, simplify = FALSE)),
+  summarise(pairs = list(combn(ms_code, 2, simplify = FALSE)),
             votes = list(combn(ms_vote, 2, simplify = FALSE))) %>%
   tidyr::unnest(cols = c(pairs, votes)) %>%
   mutate(country1 = purrr::map_chr(pairs, 1),
@@ -329,6 +352,56 @@ Selecting a threshold that reduces the density of your network to a desired leve
 #  weakest_edge <- igraph::E(UNGA_graph)[which.min(igraph::E(UNGA_graph)$weight)]
 #  UNGA_graph <- igraph::delete_edges(UNGA_graph, weakest_edge)
 #}
+```
+
+
+# GERGM
+
+```{r}
+class(weighted_edges)
+```
+
+Transforming this dataframe into adjacency matrix
+```{r}
+all_countries <- unique(c(weighted_edges$country1, weighted_edges$country2))
+
+adj_matrix_df <- weighted_edges %>%
+  tidyr::complete(country1 = all_countries, country2 = all_countries, fill = list(weight = 0)) %>%
+  tidyr::pivot_wider(names_from = country2, values_from = weight, values_fill = 0)
+
+#convert to matrix
+adj_matrix <- as.matrix(adj_matrix_df[, -1])
+
+#adding row names
+rownames(adj_matrix) <- adj_matrix_df$country1
+
+print(adj_matrix)
+```
+
+```{r}
+dim(adj_matrix) #dimension
+all(adj_matrix == t(adj_matrix)) #whether symmetric
+adj_matrix <- (adj_matrix + t(adj_matrix)) / 2
+all(adj_matrix == t(adj_matrix)) 
+```
+
+
+```{r}
+#normalize adjacency matrix (weights between 0 and 1)
+adj_matrix <- adj_matrix / max(adj_matrix)
+```
+
+
+```{r}
+model1 <- GERGM::gergm(adj_matrix ~ edges + ttriads(alpha = 1),
+                       number_of_networks_to_simulate = 1000, #decreased sample number
+                       thin = 1/10,
+                       proposal_variance = 0.05,
+                       MCMC_burnin = 500,                     
+                       seed = 456,
+                       convergence_tolerance = 0.01,
+                       cores = 3)
+summary(model1)
 ```
 
 
