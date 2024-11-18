@@ -225,7 +225,7 @@ GERGM: we can use weights and predict a continuous number (countries that voted 
 ```{r}
 library(dplyr)
 
-assembly <- assembly |> dplyr::mutate(date = ymd(date))
+assembly <- assembly |> dplyr::mutate(date = lubridate::ymd(date))
 
 data <- assembly %>% 
   dplyr::mutate(year = lubridate::year(date)) %>% 
@@ -381,6 +381,7 @@ print(adj_matrix)
 ```{r}
 dim(adj_matrix) #dimension
 all(adj_matrix == t(adj_matrix)) #whether symmetric
+#make the matrix symmetric
 adj_matrix <- (adj_matrix + t(adj_matrix)) / 2
 all(adj_matrix == t(adj_matrix)) 
 ```
@@ -392,8 +393,9 @@ adj_matrix <- adj_matrix / max(adj_matrix)
 ```
 
 
+
 ```{r}
-model1 <- GERGM::gergm(adj_matrix ~ edges + ttriads(alpha = 1),
+model1 <- GERGM::gergm(adj_matrix ~ edges + triangles,
                        number_of_networks_to_simulate = 1000, #decreased sample number
                        thin = 1/10,
                        proposal_variance = 0.05,
