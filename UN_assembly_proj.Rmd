@@ -117,6 +117,7 @@ weighted_edges <- weighted_edges %>%
 ```
 
 
+
 ```{r}
 # creating networks
 assembly_graph <- igraph::graph_from_data_frame(weighted_edges, directed = FALSE)
@@ -408,5 +409,74 @@ summary(model1)
 
 
 
+## ERGM count
+
+Edges represent counts.
+Network object as a target value
+```{r}
+class(UNGA_graph)
+```
+
+
+```{r}
+# making sure there are no duplicates
+weighted_edges <- weighted_edges %>%
+  mutate(country_pair = pmin(country1, country2), 
+         country_pair2 = pmax(country1, country2)) %>%
+  group_by(country_pair, country_pair2) %>%
+  summarise(weight = sum(weight, na.rm = TRUE), .groups = 'drop') %>%
+  rename(country1 = country_pair, country2 = country_pair2)
+```
+There were two duplicates
+
+
+Weights should be integers
+```{r}
+# round down weights
+weighted_edges$weight <- floor(weighted_edges$weight)
+
+#whether all weights are integers
+all(weighted_edges$weight == as.integer(weighted_edges$weight))
+```
+
+
+```{r}
+#network object
+UNGA_network <- intergraph::asNetwork(UNGA_graph)
+```
+
+```{r}
+#setting weights as edge attribute
+network::set.edge.attribute(UNGA_network, "weight", weighted_edges$weight)
+```
+
+
+```{r}
+network::get.edge.attribute(UNGA_network, "weight")
+```
+
+
+```{r}
+print(UNGA_network)
+```
+
+```{r}
+plot(UNGA_network,
+     displaylabels = TRUE,    #show node labels
+     label.cex = 0.7)         #adjust label size
+```
+
+
+
+```{r}
+library(ergm)
+library(ergm.count) # had to use library because of the configurations confusion
+
+model1 <- ergm(UNGA_network ~ edges,
+               response = "weight",      # the edge attribute
+               reference = ~Poisson)     # Poisson distribution for counts
+
+summary(model1)
+```
 
 
