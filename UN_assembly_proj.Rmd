@@ -13,15 +13,19 @@ output:
 knitr::opts_chunk$set(error = TRUE)
 
 library(dplyr)
+library(tidyverse)
 ```
 
 
 # Dataset
+## UNGA
 
 ```{r}
+#UNGA dataset
 assembly <- readr::read_csv("2024_09_12_ga_resolutions_voting.csv")
 head(assembly)
 ```
+
 
 ```{r}
 unique(assembly['ms_name'])
@@ -34,224 +38,33 @@ Country name descrepancies: Yogoslavia republik, USSR, Ukranian SSR, Belorussian
 str(assembly)
 ```
 
-For now, working on the year 2020. Might change after the research
 ```{r}
-# keeping year 2020
-assembly2020 <- assembly %>%
-  filter(lubridate::year(date) == 2020)
+unique(assembly['modality'])
 ```
-
-
-```{r}
-unique(assembly2020['agenda_title'])
-```
-
-```{r}
-unique(filter(assembly2020, agenda_title == 'The situation in the Middle East.'))
-#about Syria
-```
-
-
-Subsetting by the topic:
-```{r}
-count(filter(assembly2020, subjects == 'PALESTINE QUESTION')) 
-assembly2020_pal <- assembly2020 |> 
-  filter(subjects == 'PALESTINE QUESTION')
-
-```
-
-Getting unique assembly titles of Palestine topic
-```{r}
-unique(assembly2020_pal['title'])
-```
-
-
-Filtering the dataset:
-```{r}
-assembly2020_pal <- assembly2020_pal[c('ms_name', 'ms_vote', 'resolution', 
-                                       'title')]
-```
-
-
-```{r}
-# keeping rows where the vote is 'Yes'
-yes_votes2020_pal <- assembly2020_pal |> 
-  filter(ms_vote == "Y")
-```
-
-```{r}
-unique(yes_votes2020_pal['ms_name'])
-#149 countries voted yes at least once out of four assemblies
-```
-
-
-# Making network
-
-```{r}
-library(tidyverse)
-
-# making edges
-edges <- yes_votes2020_pal |>
-  group_by(resolution) |>
-  summarise(pairs = list(combn(ms_name, 2, simplify = FALSE))) |>
-  unnest(pairs) |>
-  mutate(country1 = map_chr(pairs, 1),
-         country2 = map_chr(pairs, 2)) |>
-  select(country1, country2)
-```
-
-
-```{r}
-# making weights
-weighted_edges <- edges %>%
-  group_by(country1, country2) %>%
-  summarise(weight = n(), .groups = 'drop')
-```
-
-`weight` here represents how many times a country voted yes together.
-
-```{r}
-# threshold because network is fully connected
-weighted_edges <- weighted_edges %>%
-  filter(weight >= 2) #include only edges where weight is 2 or more
-```
-
-
-
-```{r}
-# creating networks
-assembly_graph <- igraph::graph_from_data_frame(weighted_edges, directed = FALSE)
-
-# Add edge weights to the graph
-igraph::E(assembly_graph)$weight <- weighted_edges$weight
-```
-
-
-```{r}
-print(assembly_graph)
-```
-149 nodes (same as N0 unique countries). 10900 edges (142, 9899 after threshold)
-
-```{r}
-igraph::vertex_attr_names(assembly_graph)
-igraph::edge_attr_names(assembly_graph)
-```
-
-
-```{r}
-plot(assembly_graph, vertex.size = 10, 
-     vertex.label.cex = 0.5,
-     vertex.color = 'gray80',
-     edge.color = igraph::E(assembly_graph)$weight)
-```
-
-
-
-```{r}
-igraph::is.connected(assembly_graph)
-```
-The network is fully connected
-
-
-```{r}
-igraph::edge_density(assembly_graph)
-```
-Density is very big
-
-
-
-
-
-```{r}
-assembly_n <- snafun::to_network(assembly_graph)
-assembly_n
-```
-
-## Voting 'No' together
-
-```{r}
-# keeping rows where the vote is 'No'
-no_votes2020_pal <- assembly2020_pal |> 
-  filter(ms_vote == "N")
-```
-
-
-```{r}
-# making edges
-edges_n <- no_votes2020_pal |>
-  group_by(resolution) |>
-  summarise(pairs = list(combn(ms_name, 2, simplify = FALSE))) |>
-  unnest(pairs) |>
-  mutate(country1 = map_chr(pairs, 1),
-         country2 = map_chr(pairs, 2)) |>
-  select(country1, country2)
-
-# making weights
-weighted_edges_n <- edges_n %>%
-  group_by(country1, country2) %>%
-  summarise(weight = n(), .groups = 'drop')
-```
-
-
-```{r}
-# creating networks
-assembly_NO <- igraph::graph_from_data_frame(weighted_edges_n, directed = FALSE)
-
-# Add edge weights to the graph
-igraph::E(assembly_NO)$weight <- weighted_edges_n$weight
-```
-
-
-```{r}
-print(assembly_NO)
-```
-
-```{r}
-plot(assembly_NO, vertex.size = 10, 
-     vertex.label.cex = 0.5,
-     vertex.color = 'gray80',
-     edge.color = igraph::E(assembly_NO)$weight)
-```
-The 'No' graph looks a bit better.
-
-## Years 2020 and 2021
 
 
 GERGM: we can use weights and predict a continuous number (countries that voted together 4 times).
 
-
-## Same method as B. Kim et al
-
-
+We chose years 2023 and 2024 for the Palestine Topic because of the events that happened in Gaza in October 2023.
 ```{r}
-library(dplyr)
-
+# working with the date variable
 assembly <- assembly |> dplyr::mutate(date = lubridate::ymd(date))
 
 data <- assembly %>% 
-  dplyr::mutate(year = lubridate::year(date)) %>% 
-  filter(year %in% c(2020, 2021, 2022, 2023))
+  dplyr::mutate(year = lubridate::year(date)) %>% #changing year variable
+  filter(year %in% c(2023, 2024)) #including only 2023 and 2024
 ```
 
 
 ```{r}
-unique(data['ms_name'])
+#how many countries are in UN
+unique(data['ms_code'])
 ```
 
 
 ```{r}
-#TÜRKİYE case
-data <- data %>%
-  mutate(country = stringr::str_replace(ms_name, "TURKEY", "TÜRKİYE"))
+unique(data['title'])
 ```
-
-
-```{r}
-# NETHERLANDS (KINGDOM OF THE) case
-data %>%
-  filter(ms_name == c("NETHERLANDS (KINGDOM OF THE)", "NETHERLANDS"))
-```
-We will treat NETHERLANDS (KINGDOM OF THE) and NETHERLANDS as two separate countries.
 
 
 ```{r}
@@ -267,140 +80,216 @@ data <- data |>
 ```
 
 
+
 ```{r}
+#include only these variables
 data <- data[c('ms_code', 'ms_vote', 'resolution', 
                                        'title')]
 # deleting NV votes
 data <- data |> 
   filter(ms_vote != "NV")
 ```
+About 100 votes were NV
 
 
 ```{r}
-# creating pairwise agreements
-agreement_scores <- data %>%
-  group_by(resolution) %>%
-  summarise(pairs = list(combn(ms_code, 2, simplify = FALSE)),
-            votes = list(combn(ms_vote, 2, simplify = FALSE))) %>%
-  tidyr::unnest(cols = c(pairs, votes)) %>%
-  mutate(country1 = purrr::map_chr(pairs, 1),
-         country2 = purrr::map_chr(pairs, 2),
-         vote1 = purrr::map_chr(votes, 1),
-         vote2 = purrr::map_chr(votes, 2),
-         agreement = case_when(
-           vote1 == vote2 ~ 1,                    # Exact match (Y/Y, N/N, A/A)
-           (vote1 == "Y" & vote2 == "A") | 
-           (vote1 == "A" & vote2 == "Y") |
-           (vote1 == "N" & vote2 == "A") | 
-           (vote1 == "A" & vote2 == "N") ~ 0.5,         # Partial match (Y/A, N/A)
-           TRUE ~ 0                                    # No agreement
-         )) %>%
-  select(country1, country2, resolution, agreement)
+#checking for duplicates
+nrow(unique(data)) == nrow(data)
 ```
 
 
 ```{r}
-weighted_edges <- agreement_scores %>%
-  group_by(country1, country2) %>%
-  summarise(weight = sum(agreement), .groups = 'drop')
+#which resolutions are held
+unique(data['title'])
+```
+Six resolutions overall that are about Palestine-Israel conflict.
+
+
+## Democracy level
+
+```{r}
+# V-Dem project
+democracy <- readr::read_csv("V-Dem-CY-Full+Others-v14.csv")
+```
+
+```{r}
+democracy <- democracy |> 
+  filter(year == 2023)
+
+#leaving only needed columns
+democracy <- democracy[c('country_text_id', 'v2x_polyarchy', 'v2x_libdem', 
+                       'v2x_partipdem', 'v2x_delibdem', 'v2x_egaldem')]
+```
+
+**v2x_polyarchy** - To what extent is the ideal of electoral democracy in its fullest sense achieved?
+**v2x_libdem** - To what extent is the ideal of liberal democracy achieved?
+**v2x_partipdem** - To what extent is the ideal of participatory democracy achieved?
+**v2x_delibdem** - To what extent is the ideal of deliberative democracy achieved?
+**v2x_egaldem** - To what extent is the ideal of egalitarian democracy achieved? (rights are protected equally across all groups)
+
+Many researchers use only first characterization:
+```{r}
+democracy <- democracy[c('country_text_id', 'v2x_polyarchy')]
+```
+
+
+
+# Edge is voting Yes together
+
+```{r}
+countries <- unique(data$ms_code)
+
+n <- length(countries)
+adj_matrix <- matrix(0, nrow = n, ncol = n, dimnames = list(countries, countries))
+
+resolutions <- unique(data$resolution)
+for (res in resolutions) {
+  # Filter votes for the current resolution
+  votes <- data |> filter(resolution == res)
+  
+  # Get pairs of countries that voted "Yes"
+  yes_votes <- votes |> filter(ms_vote == "Y")
+  yes_pairs <- combn(yes_votes$ms_code, 2, simplify = FALSE)
+  
+  # Increment matrix for "Yes" pairs
+  for (pair in yes_pairs) {
+    adj_matrix[pair[1], pair[2]] <- adj_matrix[pair[1], pair[2]] + 1
+    adj_matrix[pair[2], pair[1]] <- adj_matrix[pair[2], pair[1]] + 1  # Symmetric
+  }
+}
 ```
 
 
 ```{r}
-min(weighted_edges$weight)
-max(weighted_edges$weight)
-```
-
-
-
-```{r}
-# create a network
-UNGA_graph <- igraph::graph_from_data_frame(weighted_edges, directed = FALSE)
-
-#add weights to edge attributes
-igraph::E(UNGA_graph)$weight <- weighted_edges$weight
+#making network
+yes_graph <- igraph::graph_from_adjacency_matrix(adj_matrix, 
+                                                   mode = "undirected", 
+                                                   weighted = TRUE)
 ```
 
 
 ```{r}
-print(UNGA_graph)
+print(yes_graph)
+```
+
+
+```{r}
+plot(yes_graph, edge.width = igraph::E(yes_graph)$weight, 
+     vertex.label = igraph::V(yes_graph)$name)
+```
+
+```{r}
+snafun::is_connected(yes_network)
+snafun::g_density(yes_network)
+```
+
+
+
+
+## Same method as B. Kim et al
+
+
+```{r}
+adj_matrix2 <- matrix(0, nrow = n, ncol = n, dimnames = list(countries, countries))
+
+for (res in resolutions) {
+  # Filter votes for the current resolution
+  votes <- data |> filter(resolution == res)
+  
+  # Compare all pairs of countries
+  for (i in 1:(nrow(votes) - 1)) {
+    for (j in (i + 1):nrow(votes)) {
+      country1 <- votes$ms_code[i]
+      country2 <- votes$ms_code[j]
+      vote1 <- votes$ms_vote[i]
+      vote2 <- votes$ms_vote[j]
+      
+      # Calculate agreement score
+      if (vote1 == vote2) {
+        score <- 1  # Full agreement
+      } else if ((vote1 == "Y" && vote2 == "A") || (vote1 == "A" && vote2 == "Y") ||
+                 (vote1 == "N" && vote2 == "A") || (vote1 == "A" && vote2 == "N")) {
+        score <- 0.5  # Partial agreement
+      } else {
+        score <- 0  # No agreement
+      }
+      
+      # Update adjacency matrix
+      adj_matrix2[country1, country2] <- adj_matrix2[country1, country2] + score
+      adj_matrix2[country2, country1] <- adj_matrix2[country2, country1] + score  # Symmetric
+    }
+  }
+}
+```
+
+
+```{r}
+#round down for count ergm
+adj_matrix3 <- floor(adj_matrix2)
+```
+
+
+```{r}
+# democracy index covariate
+countries <- rownames(adj_matrix)
+
+node_df <- data.frame(country_text_id = countries)
+
+# merging with democracy scores
+node_df <- node_df |>
+  left_join(democracy, by = "country_text_id")
+
+# using mean scores to fill in missing values
+node_df$v2x_polyarchy[is.na(node_df$v2x_polyarchy)] <- mean(node_df$v2x_polyarchy, na.rm = TRUE)
+```
+
+
+```{r}
+#making network
+agree_graph <- igraph::graph_from_adjacency_matrix(adj_matrix2,
+                                                     mode = "undirected",
+                                                     weighted = TRUE)
+print(agree_graph)
+```
+
+```{r}
+plot(agree_graph, 
+     edge.width = igraph::E(agree_graph)$weight, 
+     vertex.label = igraph::V(agree_graph)$name)
 ```
 
 The edge is this network is the level of agreement on votes. Weight - sum of agreement scores.
 
 
 ```{r}
-plot(UNGA_graph, 
-     edge.width = igraph::E(UNGA_graph)$weight, 
-     vertex.size = 5, 
-     vertex.label.cex = 0.7)
+igraph::is_connected(agree_graph)
+igraph::edge_density(agree_graph)
 ```
 
-```{r}
-igraph::is_connected(UNGA_graph)
-igraph::edge_density(UNGA_graph)
-igraph::degree_distribution(UNGA_graph)
-```
-
-
-
-Selecting a threshold that reduces the density of your network to a desired level:
-```{r}
-#target_density <- 0.1
-
-#while (igraph::edge_density(UNGA_graph) > target_density) {
-  # Remove weakest edges 
-#  weakest_edge <- igraph::E(UNGA_graph)[which.min(igraph::E(UNGA_graph)$weight)]
-#  UNGA_graph <- igraph::delete_edges(UNGA_graph, weakest_edge)
-#}
-```
 
 
 # GERGM
 
 ```{r}
-class(weighted_edges)
-```
-
-Transforming this dataframe into adjacency matrix
-```{r}
-all_countries <- unique(c(weighted_edges$country1, weighted_edges$country2))
-
-adj_matrix_df <- weighted_edges %>%
-  tidyr::complete(country1 = all_countries, country2 = all_countries, fill = list(weight = 0)) %>%
-  tidyr::pivot_wider(names_from = country2, values_from = weight, values_fill = 0)
-
-#convert to matrix
-adj_matrix <- as.matrix(adj_matrix_df[, -1])
-
-#adding row names
-rownames(adj_matrix) <- adj_matrix_df$country1
-
-print(adj_matrix)
+#checking symmetry
+all(adj_matrix2 == t(adj_matrix2))
+#checking for NAs
+any(is.na(adj_matrix2))
+any(adj_matrix2 < 0) 
 ```
 
 ```{r}
-dim(adj_matrix) #dimension
-all(adj_matrix == t(adj_matrix)) #whether symmetric
-#make the matrix symmetric
-adj_matrix <- (adj_matrix + t(adj_matrix)) / 2
-all(adj_matrix == t(adj_matrix)) 
+all(rownames(adj_matrix) == covariate_data$country_text_id)
 ```
 
 
 ```{r}
-#normalize adjacency matrix (weights between 0 and 1)
-adj_matrix <- adj_matrix / max(adj_matrix)
-```
-
-
-
-```{r}
-model1 <- GERGM::gergm(adj_matrix ~ edges + triangles,
-                       number_of_networks_to_simulate = 1000, #decreased sample number
+model1 <- GERGM::gergm(adj_matrix ~ edges + triangles + nodecov("v2x_polyarchy"),
+                       covariate_data = covariate_data,
+                       number_of_networks_to_simulate = 1000, #this sample size for now
                        thin = 1/10,
                        proposal_variance = 0.05,
-                       MCMC_burnin = 500,                     
+                       MCMC_burnin = 500,
                        seed = 456,
                        convergence_tolerance = 0.01,
                        cores = 3)
@@ -414,56 +303,21 @@ summary(model1)
 Edges represent counts.
 Network object as a target value
 ```{r}
-class(UNGA_graph)
+class(agree_graph)
 ```
 
 
 ```{r}
-# making sure there are no duplicates
-weighted_edges <- weighted_edges %>%
-  mutate(country_pair = pmin(country1, country2), 
-         country_pair2 = pmax(country1, country2)) %>%
-  group_by(country_pair, country_pair2) %>%
-  summarise(weight = sum(weight, na.rm = TRUE), .groups = 'drop') %>%
-  rename(country1 = country_pair, country2 = country_pair2)
-```
-There were two duplicates
-
-
-Weights should be integers
-```{r}
-# round down weights
-weighted_edges$weight <- floor(weighted_edges$weight)
-
-#whether all weights are integers
-all(weighted_edges$weight == as.integer(weighted_edges$weight))
+snafun::has_isolates(agree_graph)
+snafun::is_connected(agree_graph)
 ```
 
 
 ```{r}
 #network object
-UNGA_network <- intergraph::asNetwork(UNGA_graph)
-```
-
-```{r}
-#setting weights as edge attribute
-network::set.edge.attribute(UNGA_network, "weight", weighted_edges$weight)
-```
-
-
-```{r}
-network::get.edge.attribute(UNGA_network, "weight")
-```
-
-
-```{r}
-print(UNGA_network)
-```
-
-```{r}
-plot(UNGA_network,
-     displaylabels = TRUE,    #show node labels
-     label.cex = 0.7)         #adjust label size
+yes_net <- network::network(adj_matrix, directed = FALSE, matrix.type = "adjacency")
+set.edge.attribute(yes_net, "weight", as.vector(adj_matrix[adj_matrix > 0]))
+set.vertex.attribute(yes_net, "democracy_score", node_df$v2x_polyarchy)
 ```
 
 
@@ -472,11 +326,30 @@ plot(UNGA_network,
 library(ergm)
 library(ergm.count) # had to use library because of the configurations confusion
 
-model1 <- ergm(UNGA_network ~ edges,
+model2 <- ergm(yes_net ~ edges + nodecov("democracy_score"),
                response = "weight",      # the edge attribute
                reference = ~Poisson)     # Poisson distribution for counts
 
-summary(model1)
+summary(model2)
+```
+Positive nodecov.sum.democracy_score means that countries with higher democracy scores are more likely to form connections.
+
+
+
+```{r}
+#network for agreement scores
+agree_net <- network::network(adj_matrix3, directed = FALSE, matrix.type = "adjacency")
+set.edge.attribute(agree_net, "weight", as.vector(adj_matrix[adj_matrix > 0]))
+set.vertex.attribute(agree_net, "democracy_score", node_df$v2x_polyarchy)
 ```
 
+
+
+```{r}
+model2 <- ergm(agree_net ~ edges + nodecov("democracy_score"),
+               response = "weight",      # the edge attribute
+               reference = ~Poisson)     # Poisson distribution for counts
+
+summary(model2)
+```
 
