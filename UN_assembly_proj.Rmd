@@ -134,7 +134,7 @@ democracy <- democracy[c('country_text_id', 'v2x_polyarchy')]
 
 
 
-# Edge is voting Yes together
+## Edge is voting Yes together
 
 ```{r}
 countries <- unique(data$ms_code)
@@ -179,8 +179,8 @@ plot(yes_graph, edge.width = igraph::E(yes_graph)$weight,
 ```
 
 ```{r}
-snafun::is_connected(yes_network)
-snafun::g_density(yes_network)
+snafun::is_connected(yes_graph)
+snafun::g_density(yes_graph)
 ```
 
 
@@ -267,8 +267,8 @@ igraph::edge_density(agree_graph)
 ```
 
 
-
-# GERGM
+# Models
+## GERGM
 
 ```{r}
 #checking symmetry
@@ -279,12 +279,12 @@ any(adj_matrix2 < 0)
 ```
 
 ```{r}
-all(rownames(adj_matrix) == covariate_data$country_text_id)
+all(rownames(adj_matrix) == node_df$country_text_id)
 ```
 
 
 ```{r}
-model1 <- GERGM::gergm(adj_matrix ~ edges + triangles + nodecov("v2x_polyarchy"),
+model1 <- GERGM::gergm(adj_matrix2 ~ edges + triangles + nodecov("v2x_polyarchy"),
                        covariate_data = covariate_data,
                        number_of_networks_to_simulate = 1000, #this sample size for now
                        thin = 1/10,
@@ -316,8 +316,8 @@ snafun::is_connected(agree_graph)
 ```{r}
 #network object
 yes_net <- network::network(adj_matrix, directed = FALSE, matrix.type = "adjacency")
-set.edge.attribute(yes_net, "weight", as.vector(adj_matrix[adj_matrix > 0]))
-set.vertex.attribute(yes_net, "democracy_score", node_df$v2x_polyarchy)
+network::set.edge.attribute(yes_net, "weight", as.vector(adj_matrix[adj_matrix > 0]))
+network::set.vertex.attribute(yes_net, "democracy_score", node_df$v2x_polyarchy)
 ```
 
 
@@ -339,17 +339,36 @@ Positive nodecov.sum.democracy_score means that countries with higher democracy 
 ```{r}
 #network for agreement scores
 agree_net <- network::network(adj_matrix3, directed = FALSE, matrix.type = "adjacency")
-set.edge.attribute(agree_net, "weight", as.vector(adj_matrix[adj_matrix > 0]))
-set.vertex.attribute(agree_net, "democracy_score", node_df$v2x_polyarchy)
+network::set.edge.attribute(agree_net, "weight", as.vector(adj_matrix[adj_matrix > 0]))
+network::set.vertex.attribute(agree_net, "democracy_score", node_df$v2x_polyarchy)
 ```
 
 
 
 ```{r}
-model2 <- ergm(agree_net ~ edges + nodecov("democracy_score"),
+model3 <- ergm(agree_net ~ edges + nodecov("democracy_score"),
                response = "weight",      # the edge attribute
                reference = ~Poisson)     # Poisson distribution for counts
 
-summary(model2)
+summary(model3)
 ```
 
+```{r}
+search.ergmTerms(keywords=c('valued','undirected'))
+```
+Terms we can try:
+ * *transitiveweights(twopath="min", combine="max", affect="min") (valued)* that measures triadic closure in a valued network (i.e., how the weights of two edges influence the likelihood of forming a third edge in a triangle)
+ * *sociality(attr=NULL, base=1, levels=NULL, nodes=-1, form="sum") (valued)* how a node's total weight (the sum of its edge weights) influences the structure of the network. If set to `NULL` it models the general sociality of nodes (their tendency to form edges based on their total edge weights). If set to specific attribute, it models how that attribute influences the node's activity/popularity.
+ 
+ 
+```{r}
+model4 <- ergm(agree_net ~ edges + transitiveweights(twopath="min", 
+                                                     combine="max",
+                                                     affect="min") + 
+                 nodecov("democracy_score"),
+               response = "weight",      # the edge attribute
+               reference = ~Poisson)     # Poisson distribution for counts
+
+summary(model4)
+```
+ 
