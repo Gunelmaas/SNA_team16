@@ -11,13 +11,14 @@ output:
 ```{r setup, include=FALSE}
 # ignore the errors
 knitr::opts_chunk$set(error = TRUE)
+set.seed(123)
 
 library(dplyr)
 library(tidyverse)
 ```
 
 
-# Dataset
+# Datasets
 ## UNGA
 
 ```{r}
@@ -41,9 +42,6 @@ str(assembly)
 ```{r}
 unique(assembly['modality'])
 ```
-
-
-GERGM: we can use weights and predict a continuous number (countries that voted together 4 times).
 
 We chose years 2023 and 2024 for the Palestine Topic because of the events that happened in Gaza in October 2023.
 ```{r}
@@ -80,7 +78,6 @@ data <- data |>
 ```
 
 
-
 ```{r}
 #include only these variables
 data <- data[c('ms_code', 'ms_vote', 'resolution', 
@@ -96,13 +93,87 @@ About 100 votes were NV
 #checking for duplicates
 nrow(unique(data)) == nrow(data)
 ```
+no duplicates
 
 
 ```{r}
 #which resolutions are held
 unique(data['title'])
 ```
-Six resolutions overall that are about Palestine-Israel conflict.
+Six titles overall that are about Palestine-Israel conflict.
+**Seven** resolutions.
+```{r}
+data %>%
+  group_by(resolution) %>%
+  summarise(vote_count = n())
+```
+
+
+```{r}
+data |> 
+  filter(ms_code == 'ISR')
+```
+Israel voted 'No' in all seven resolutions.
+
+
+### making network
+
+```{r}
+#Adjacency matrix
+countries <- unique(data$ms_code)
+
+n <- length(countries)
+adj_matrix <- matrix(0, nrow = n, ncol = n, dimnames = list(countries, countries))
+
+resolutions <- unique(data$resolution)
+for (res in resolutions) {
+  # Filter votes for the current resolution
+  votes <- data |> filter(resolution == res)
+  
+  # Get pairs of countries that voted "Yes"
+  yes_votes <- votes |> filter(ms_vote == "Y")
+  yes_pairs <- combn(yes_votes$ms_code, 2, simplify = FALSE)
+  
+  # Increment matrix for "Yes" pairs
+  for (pair in yes_pairs) {
+    adj_matrix[pair[1], pair[2]] <- adj_matrix[pair[1], pair[2]] + 1
+    adj_matrix[pair[2], pair[1]] <- adj_matrix[pair[2], pair[1]] + 1  # Symmetric
+  }
+}
+```
+
+
+Checking distribution of Yes votes
+```{r}
+#filtering only yes votes
+yes_votes <- data |>
+  filter(ms_vote == "Y")
+
+# grouping and counting the votes
+country_yes_counts <- yes_votes |>
+  group_by(ms_code) |> 
+  summarise(yes_count = n())
+
+#making a table
+country_yes_counts <- table(country_yes_counts$yes_count)
+
+#visualizing the distribution
+barplot(
+  country_yes_counts,
+  main = "Distribution of Yes Votes Across Countries",
+  xlab = "Number of Yes Votes",
+  ylab = "Frequency of Countries",
+  col = "lightblue",
+  border = "black"
+)
+```
+
+I will work with two adjacency matrices. One without any threshold (adj_matrix2), and one with connections only if a country voted yes 5 times or more (adj_matrix3)
+
+```{r}
+adj_matrix2 <- ifelse(adj_matrix >= 1, 1, 0) #adj without threshold
+adj_matrix3 <- ifelse(adj_matrix >= 5, 1, 0) #adj with threshold
+```
 
 
 ## Democracy level
@@ -127,70 +198,368 @@ democracy <- democracy[c('country_text_id', 'v2x_polyarchy', 'v2x_libdem',
 **v2x_delibdem** - To what extent is the ideal of deliberative democracy achieved?
 **v2x_egaldem** - To what extent is the ideal of egalitarian democracy achieved? (rights are protected equally across all groups)
 
-Many researchers use only first characterization:
+
+```{r}
+#checking correlations
+cor.test(democracy$v2x_polyarchy, democracy$v2x_partipdem, method = "pearson")
+```
+
+```{r}
+cor.test(democracy$v2x_polyarchy, democracy$v2x_egaldem, method = "pearson")
+```
+
+Since they are highly correlated, we are choosing only electoral democracy score.
 ```{r}
 democracy <- democracy[c('country_text_id', 'v2x_polyarchy')]
 ```
 
 
-
-## Edge is voting Yes together
+## Religion
 
 ```{r}
-countries <- unique(data$ms_code)
+#importing the dataset
+religion <- readr::read_csv('WRP_national.csv')
+```
 
-n <- length(countries)
-adj_matrix <- matrix(0, nrow = n, ncol = n, dimnames = list(countries, countries))
-
-resolutions <- unique(data$resolution)
-for (res in resolutions) {
-  # Filter votes for the current resolution
-  votes <- data |> filter(resolution == res)
-  
-  # Get pairs of countries that voted "Yes"
-  yes_votes <- votes |> filter(ms_vote == "Y")
-  yes_pairs <- combn(yes_votes$ms_code, 2, simplify = FALSE)
-  
-  # Increment matrix for "Yes" pairs
-  for (pair in yes_pairs) {
-    adj_matrix[pair[1], pair[2]] <- adj_matrix[pair[1], pair[2]] + 1
-    adj_matrix[pair[2], pair[1]] <- adj_matrix[pair[2], pair[1]] + 1  # Symmetric
-  }
-}
+```{r}
+#picking the most recent year
+religion <- religion |> 
+  filter(year == 2010)
 ```
 
 
 ```{r}
-#making network
-yes_graph <- igraph::graph_from_adjacency_matrix(adj_matrix, 
+#listing religious groups
+religion_columns <- c( "chrstgen", "judgen", "islmgen", "budgen", "zorogen", "hindgen", 
+                      "sikhgen", "shntgen", "bahgen", "taogen", "jaingen", "confgen", 
+                      "syncgen", "anmgen", "nonrelig", "othrgen")
+
+#creating a variable with the most popular one
+religion <- religion %>%
+  rowwise() %>%
+  mutate(
+    largest_religion = religion_columns[which.max(c_across(all_of(religion_columns)))]
+  ) %>%
+  ungroup()
+
+#selecting only needed columns
+religion <- religion[c('name', 'largest_religion')]
+```
+
+
+```{r}
+as.vector(religion['name'])
+```
+The data is not using ISO 3166-1 alpha-3 country codes. We have to match them manually:
+```{r}
+mapping <- data.frame(
+  custom_code = c("USA", "CAN", "BHM", "CUB", "HAI", "DOM", "JAM", "TRI", "BAR", "DMA", 
+                  "GRN", "SLU", "SVG", "AAB", "SKN", "MEX", "BLZ", "GUA", "HON", "SAL", 
+                  "NIC", "COS", "PAN", "COL", "VEN", "GUY", "SUR", "ECU", "PER", "BRA", 
+                  "BOL", "PAR", "CHL", "ARG", "URU", "UKG", "IRE", "NTH", "BEL", "LUX", 
+                  "FRN", "MNC", "LIE", "SWZ", "SPN", "AND", "POR", "GMY", "POL", "AUS", 
+                  "HUN", "CZR", "SLO", "ITA", "SNM", "MLT", "ALB", "MNG", "MAC", "CRO", 
+                  "YUG", "BOS", "KOS", "SLV", "GRC", "CYP", "BUL", "MLD", "ROM", "RUS", 
+                  "EST", "LAT", "LIT", "UKR", "BLR", "ARM", "GRG", "AZE", "FIN", "SWD", 
+                  "NOR", "DEN", "ICE", "CAP", "STP", "GNB", "EQG", "GAM", "MLI", "SEN", 
+                  "BEN", "MAA", "NIR", "CDI", "GUI", "BFO", "LBR", "SIE", "GHA", "TOG", 
+                  "CAO", "NIG", "GAB", "CEN", "CHA", "CON", "DRC", "UGA", "KEN", "TAZ", 
+                  "BUI", "RWA", "SOM", "DJI", "ETH", "ERI", "ANG", "MZM", "ZAM", "ZIM", 
+                  "MAW", "SAF", "NAM", "LES", "BOT", "SWA", "MAG", "COM", "MAS", "SEY", 
+                  "MOR", "ALG", "TUN", "LIB", "SUD", "IRN", "TUR", "IRQ", "EGY", "SYR", 
+                  "LEB", "JOR", "ISR", "SAU", "YEM", "KUW", "BAH", "QAT", "UAE", "OMA", 
+                  "AFG", "TKM", "TAJ", "KYR", "UZB", "KZK", "CHN", "TAW", "PRK", "ROK", 
+                  "JPN", "IND", "BHU", "PAK", "BNG", "MYA", "SRI", "MAD", "NEP", "THI", 
+                  "CAM", "LAO", "DRV", "MAL", "SIN", "BRU", "PHI", "INS", "ETM", "AUL", 
+                  "PNG", "NEW", "VAN", "SOL", "KIR", "TUV", "FIJ", "TON", "NAU", "MSI", 
+                  "PAL", "FSM", "WSM"),
+  iso3c = c("USA", "CAN", "BHS", "CUB", "HTI", "DOM", "JAM", "TTO", "BRB", "DMA", 
+            "GRD", "LCA", "VCT", "ATG", "KNA", "MEX", "BLZ", "GTM", "HND", "SLV", 
+            "NIC", "CRI", "PAN", "COL", "VEN", "GUY", "SUR", "ECU", "PER", "BRA", 
+            "BOL", "PRY", "CHL", "ARG", "URY", "GBR", "IRL", "NLD", "BEL", "LUX", 
+            "FRA", "MCO", "LIE", "CHE", "ESP", "AND", "PRT", "DEU", "POL", "AUT", 
+            "HUN", "CZE", "SVK", "ITA", "SMR", "MLT", "ALB", "MNE", "MKD", "HRV", 
+            "YUG", "BIH", "XKX", "SVN", "GRC", "CYP", "BGR", "MDA", "ROU", "RUS", 
+            "EST", "LVA", "LTU", "UKR", "BLR", "ARM", "GEO", "AZE", "FIN", "SWE", 
+            "NOR", "DNK", "ISL", "CPV", "STP", "GNB", "GNQ", "GMB", "MLI", "SEN", 
+            "BEN", "MAR", "NER", "CIV", "GIN", "BFA", "LBR", "SLE", "GHA", "TGO", 
+            "CMR", "NGA", "GAB", "CAF", "TCD", "COG", "COD", "UGA", "KEN", "TZA", 
+            "BDI", "RWA", "SOM", "DJI", "ETH", "ERI", "AGO", "MOZ", "ZMB", "ZWE", 
+            "MWI", "ZAF", "NAM", "LSO", "BWA", "SWZ", "MDG", "COM", "MUS", "SYC", 
+            "MAR", "DZA", "TUN", "LBY", "SDN", "IRN", "TUR", "IRQ", "EGY", "SYR", 
+            "LBN", "JOR", "ISR", "SAU", "YEM", "KWT", "BHR", "QAT", "ARE", "OMN", 
+            "AFG", "TKM", "TJK", "KGZ", "UZB", "KAZ", "CHN", "TWN", "PRK", "KOR", 
+            "JPN", "IND", "BTN", "PAK", "BGD", "MMR", "LKA", "MDV", "NPL", "THA", 
+            "KHM", "LAO", "VNM", "MYS", "SGP", "BRN", "PHL", "IDN", "TLS", "AUS", 
+            "PNG", "NZL", "VUT", "SLB", "KIR", "TUV", "FJI", "TON", "NRU", "WSM", 
+            "PLW", "FSM", "WSM")
+)
+
+#merging religion with mapping and update
+religion <- religion |>
+  left_join(mapping, by = c("name" = "custom_code")) |>
+  mutate(name = ifelse(!is.na(iso3c), iso3c, name)) |>
+  select(-iso3c)
+```
+
+
+```{r}
+#which religious groups are the most popular
+unique(religion['largest_religion'])
+```
+
+```{r}
+# countries where majority of population is non-religious
+religion |> 
+  filter(largest_religion == 'nonrelig')
+```
+
+
+
+```{r}
+#making network for non-threshold matrix
+yes_graph1 <- igraph::graph_from_adjacency_matrix(adj_matrix2, 
                                                    mode = "undirected", 
-                                                   weighted = TRUE)
+                                                   weighted = FALSE)
 ```
 
 
 ```{r}
-print(yes_graph)
+yes_graph1
+```
+
+```{r}
+plot(yes_graph1, 
+     vertex.label = igraph::V(yes_graph1)$name)
+```
+
+```{r}
+snafun::is_connected(yes_graph1)
+snafun::g_density(yes_graph1)
 ```
 
 
 ```{r}
-plot(yes_graph, edge.width = igraph::E(yes_graph)$weight, 
-     vertex.label = igraph::V(yes_graph)$name)
+# graph for threshold matrix
+yes_graph2 <- igraph::graph_from_adjacency_matrix(adj_matrix3, 
+                                                   mode = "undirected", 
+                                                   weighted = FALSE)
+yes_graph2
 ```
 
 ```{r}
-snafun::is_connected(yes_graph)
-snafun::g_density(yes_graph)
+plot(yes_graph2, 
+     vertex.label = igraph::V(yes_graph2)$name)
+```
+
+```{r}
+snafun::g_density(yes_graph2)
+```
+
+
+```{r}
+# democracy index covariate
+countries <- rownames(adj_matrix2)
+
+node_df <- data.frame(country_text_id = countries)
+
+# merging with democracy scores
+node_df <- node_df |>
+  left_join(democracy, by = "country_text_id")
+
+# using mean scores to fill in missing values
+node_df$v2x_polyarchy[is.na(node_df$v2x_polyarchy)] <- mean(node_df$v2x_polyarchy, na.rm = TRUE)
+
+#merging with religion
+names(religion)[1] <- "country_text_id" #renaming the country column
+node_df <- node_df |>
+  left_join(religion, by = "country_text_id")
+```
+
+
+```{r}
+node_df[apply(is.na(node_df), 1, any), ]
+```
+Missing religion for Marshall Islands, Mauritania, Mongolia, Serbia, and South Sudan. They will be filled in manually with the data from [WorldPopulationReviw](https://worldpopulationreview.com/country-rankings/religion-by-country) that got data from CIA, UN, etc.
+```{r}
+#manually filling in the data
+node_df <- node_df |>
+  mutate(largest_religion = case_when(
+    country_text_id == 'MHL' ~ 'chrstgen',
+    country_text_id == 'MRT' ~ 'islmgen',
+    country_text_id == 'MNG' ~ 'budgen',
+    country_text_id == 'SRB' ~ 'chrstgen',
+    country_text_id == 'SSD' ~ 'chrstgen',
+    TRUE ~ largest_religion
+  ))
+```
+
+
+```{r}
+#checking if any NAs left
+sum(is.na(node_df))
 ```
 
 
 
+# Models
 
-## Same method as B. Kim et al
+## No threshold network
+```{r}
+#network object
+yes_net1 <- network::network(adj_matrix2, directed = FALSE, matrix.type = "adjacency")
+
+#adding vertex attributes
+network::set.vertex.attribute(yes_net1, "democracy_score", node_df$v2x_polyarchy)
+network::set.vertex.attribute(yes_net1, "largest_religion", node_df$largest_religion)
+```
+
+```{r}
+yes_net1
+```
+
+```{r}
+ergm::search.ergmTerms(keywords=c('binary','undirected'))
+```
+
+`gwdsp` captures the tendency for two nodes to share common neighbors, but unlike `gwesp`, it doesn't require these nodes to form triangles. This can work better in dense networks where clustering is dominated by shared neighbors rather than transitive triangles.
+
+try `density`, `degcor`, `degreepopularity`.
+
+```{r}
+model_yes1 <- ergm::ergm(yes_net1 ~ edges + degree1.5, 
+                         control = ergm::control.ergm(MCMC.burnin = 1000,
+                                                      MCMC.samplesize = 50000,
+                                                      seed = 123,
+                                                      MCMLE.maxit = 20,
+                                                      parallel = 3,
+                                                      parallel.type = "PSOCK"))
+
+summary(model_yes1)
+```
+Ran for 72 minutes
+`Degreepopularity` shows the propensity for nodes with high degrees (those already well-connected) to be more likely to gain additional edges (connections).
+`Degreepopularity` is replaced automatically by degree1.5, which means the same thing. Thus, I replaced it in the codes as well.
+
+```{r}
+model_yes2 <- ergm::ergm(yes_net1 ~ edges + degree1.5 + 
+                           nodecov("democracy_score"), 
+                         control = ergm::control.ergm(MCMC.burnin = 1000,
+                                                      MCMC.samplesize = 50000,
+                                                      seed = 123,
+                                                      MCMLE.maxit = 20,
+                                                      parallel = 3,
+                                                      parallel.type = "PSOCK"))
+
+summary(model_yes2)
+```
+Ran for 42 min
+
+```{r}
+table(node_df$largest_religion)
+```
+The religion categories are heavily unbalanced. May cause problems? --> nodematch did not run and nodefactor was running for hours (didn't finish it)
+
+```{r}
+node_df$largest_religion <- 
+  ifelse(node_df$largest_religion %in% 
+           c("anmggen", "budgen", "hindgen", "judgen", "nonrelig", 
+             "shntgen", "syncgen", "anmgen"),"Other",
+         node_df$largest_religion)
+
+table(node_df$largest_religion)
+
+#updating network covariate
+network::set.vertex.attribute(yes_net1, "largest_religion", node_df$largest_religion)
+```
 
 
 ```{r}
-adj_matrix2 <- matrix(0, nrow = n, ncol = n, dimnames = list(countries, countries))
+model_yes3 <- ergm::ergm(yes_net1 ~ edges + degree1.5 + 
+                           nodecov("democracy_score") + 
+                           nodematch("largest_religion"),
+                         control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                      MCMC.samplesize = 100000,
+                                                      seed = 123,
+                                                      MCMC.interval = 100, # reduce autocorrelation
+                                                      MCMLE.maxit = 25,
+                                                      parallel = 3,
+                                                      parallel.type = "PSOCK"))
+
+summary(model_yes3)
+```
+
+
+```{r}
+texreg::screenreg(list(model_yes1, model_yes2))
+```
+
+
+```{r}
+#network object
+yes_net2 <- network::network(adj_matrix3, directed = FALSE, matrix.type = "adjacency")
+
+#adding vertex attributes
+network::set.vertex.attribute(yes_net2, "democracy_score", node_df$v2x_polyarchy)
+network::set.vertex.attribute(yes_net2, "largest_religion", node_df$largest_religion)
+```
+
+```{r}
+yes_net2
+```
+```{r}
+plot(yes_net2)
+```
+
+
+```{r}
+model_yes11 <- ergm::ergm(yes_net2 ~ edges + degree1.5, 
+                         control = ergm::control.ergm(MCMC.burnin = 1000,
+                                                      MCMC.samplesize = 50000,
+                                                      seed = 123,
+                                                      MCMLE.maxit = 20,
+                                                      parallel = 3,
+                                                      parallel.type = "PSOCK"))
+
+summary(model_yes11)
+```
+
+
+```{r}
+model_yes12 <- ergm::ergm(yes_net2 ~ edges + degree1.5 + nodecov("democracy_score"), 
+                         control = ergm::control.ergm(MCMC.burnin = 1000,
+                                                      MCMC.samplesize = 50000,
+                                                      seed = 123,
+                                                      MCMLE.maxit = 20,
+                                                      MCMC.interval = 5000,
+                                                      parallel = 3,
+                                                      parallel.type = "PSOCK"))
+
+summary(model_yes12)
+```
+
+
+```{r}
+model_yes13 <- ergm::ergm(yes_net2 ~ edges + degree1.5 + nodecov("democracy_score") + 
+                            nodematch("largest_religion"), 
+                         control = ergm::control.ergm(MCMC.burnin = 1000,
+                                                      MCMC.samplesize = 50000,
+                                                      seed = 123,
+                                                      MCMLE.maxit = 20,
+                                                      MCMC.interval = 5000,
+                                                      parallel = 3,
+                                                      parallel.type = "PSOCK"))
+
+summary(model_yes13)
+```
+
+
+I am not deleting the agreement term yet just in case.
+## Same method as B. Kim et al (agreement term)
+
+
+```{r}
+adj_matrix_agree <- matrix(0, nrow = n, ncol = n, dimnames = list(countries, countries))
 
 for (res in resolutions) {
   # Filter votes for the current resolution
@@ -215,8 +584,8 @@ for (res in resolutions) {
       }
       
       # Update adjacency matrix
-      adj_matrix2[country1, country2] <- adj_matrix2[country1, country2] + score
-      adj_matrix2[country2, country1] <- adj_matrix2[country2, country1] + score  # Symmetric
+      adj_matrix_agree[country1, country2] <- adj_matrix_agree[country1, country2] + score
+      adj_matrix_agree[country2, country1] <- adj_matrix_agree[country2, country1] + score  # Symmetric
     }
   }
 }
@@ -225,23 +594,9 @@ for (res in resolutions) {
 
 ```{r}
 #round down for count ergm
-adj_matrix3 <- floor(adj_matrix2)
+adj_matrix_agree <- floor(adj_matrix_agree)
 ```
 
-
-```{r}
-# democracy index covariate
-countries <- rownames(adj_matrix)
-
-node_df <- data.frame(country_text_id = countries)
-
-# merging with democracy scores
-node_df <- node_df |>
-  left_join(democracy, by = "country_text_id")
-
-# using mean scores to fill in missing values
-node_df$v2x_polyarchy[is.na(node_df$v2x_polyarchy)] <- mean(node_df$v2x_polyarchy, na.rm = TRUE)
-```
 
 
 ```{r}
@@ -258,6 +613,12 @@ plot(agree_graph,
      vertex.label = igraph::V(agree_graph)$name)
 ```
 
+```{r}
+print(agree_net)
+```
+
+
+
 The edge is this network is the level of agreement on votes. Weight - sum of agreement scores.
 
 
@@ -267,108 +628,66 @@ igraph::edge_density(agree_graph)
 ```
 
 
-# Models
-## GERGM
-
-```{r}
-#checking symmetry
-all(adj_matrix2 == t(adj_matrix2))
-#checking for NAs
-any(is.na(adj_matrix2))
-any(adj_matrix2 < 0) 
-```
-
-```{r}
-all(rownames(adj_matrix) == node_df$country_text_id)
-```
-
-
-```{r}
-model1 <- GERGM::gergm(adj_matrix2 ~ edges + triangles + nodecov("v2x_polyarchy"),
-                       covariate_data = covariate_data,
-                       number_of_networks_to_simulate = 1000, #this sample size for now
-                       thin = 1/10,
-                       proposal_variance = 0.05,
-                       MCMC_burnin = 500,
-                       seed = 456,
-                       convergence_tolerance = 0.01,
-                       cores = 3)
-summary(model1)
-```
-
-
-
-## ERGM count
-
-Edges represent counts.
-Network object as a target value
-```{r}
-class(agree_graph)
-```
-
-
-```{r}
-snafun::has_isolates(agree_graph)
-snafun::is_connected(agree_graph)
-```
-
-
-```{r}
-#network object
-yes_net <- network::network(adj_matrix, directed = FALSE, matrix.type = "adjacency")
-network::set.edge.attribute(yes_net, "weight", as.vector(adj_matrix[adj_matrix > 0]))
-network::set.vertex.attribute(yes_net, "democracy_score", node_df$v2x_polyarchy)
-```
-
-
-
-```{r}
-library(ergm)
-library(ergm.count) # had to use library because of the configurations confusion
-
-model2 <- ergm(yes_net ~ edges + nodecov("democracy_score"),
-               response = "weight",      # the edge attribute
-               reference = ~Poisson)     # Poisson distribution for counts
-
-summary(model2)
-```
-Positive nodecov.sum.democracy_score means that countries with higher democracy scores are more likely to form connections.
-
-
 
 ```{r}
 #network for agreement scores
-agree_net <- network::network(adj_matrix3, directed = FALSE, matrix.type = "adjacency")
-network::set.edge.attribute(agree_net, "weight", as.vector(adj_matrix[adj_matrix > 0]))
+agree_net <- network::network(adj_matrix_agree, directed = FALSE, matrix.type = "adjacency")
+#edge attribute
+network::set.edge.attribute(agree_net, "weight", as.vector(adj_matrix_agree[adj_matrix_agree > 0]))
+#vertex attributes
 network::set.vertex.attribute(agree_net, "democracy_score", node_df$v2x_polyarchy)
+network::set.vertex.attribute(agree_net, "largest_religion", religion$largest_religion)
 ```
 
 
-
 ```{r}
-model3 <- ergm(agree_net ~ edges + nodecov("democracy_score"),
+model_agree1 <- ergm(agree_net ~ edges + nodecov("democracy_score"),
                response = "weight",      # the edge attribute
-               reference = ~Poisson)     # Poisson distribution for counts
+               reference = ~Poisson,
+               control = ergm::control.ergm(MCMC.burnin = 5000,
+                                            MCMC.samplesize = 10000,
+                                            seed = 123,
+                                            MCMLE.maxit = 20, #N of iterations
+                                            parallel = 3,
+                                            parallel.type = "PSOCK"))   
 
-summary(model3)
+summary(model_agree1)
 ```
+
 
 ```{r}
-search.ergmTerms(keywords=c('valued','undirected'))
+model_agree2 <- ergm(agree_net ~ edges + nodecov("democracy_score") + 
+                       nodematch("largest_religion"),
+                     response = "weight",      # the edge attribute
+                     reference = ~Poisson,
+                     control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                  MCMC.samplesize = 10000,
+                                                  seed = 123,
+                                                  MCMLE.maxit = 20, #N of iterations
+                                                  parallel = 3,
+                                                  parallel.type = "PSOCK"))   
+
+summary(model_agree2)
 ```
-Terms we can try:
- * *transitiveweights(twopath="min", combine="max", affect="min") (valued)* that measures triadic closure in a valued network (i.e., how the weights of two edges influence the likelihood of forming a third edge in a triangle)
- * *sociality(attr=NULL, base=1, levels=NULL, nodes=-1, form="sum") (valued)* how a node's total weight (the sum of its edge weights) influences the structure of the network. If set to `NULL` it models the general sociality of nodes (their tendency to form edges based on their total edge weights). If set to specific attribute, it models how that attribute influences the node's activity/popularity.
- 
+
+
  
 ```{r}
-model4 <- ergm(agree_net ~ edges + transitiveweights(twopath="min", 
-                                                     combine="max",
-                                                     affect="min") + 
-                 nodecov("democracy_score"),
-               response = "weight",      # the edge attribute
-               reference = ~Poisson)     # Poisson distribution for counts
+model_agree3 <- ergm(agree_net ~ nonzero + sum + nodecov("democracy_score"),
+                     response = "weight",      # the edge attribute
+                     reference = ~Poisson, 
+                     control = ergm::control.ergm(MCMC.burnin = 50,
+                                                  MCMC.samplesize = 100,
+                                                  seed = 123,
+                                                  MCMLE.maxit = 20, #N of iterations
+                                                  parallel = 3,
+                                                  parallel.type = "PSOCK"))  
 
-summary(model4)
+summary(model_agree3)
 ```
+ 
+```{r}
+texreg::screenreg(list(model_agree1, model_agree2, model_agree3))
+```
+ 
  
