@@ -419,12 +419,29 @@ yes_net1
 ```
 
 ```{r}
+plot(yes_net1,
+     vertex.col = as.factor(network::get.vertex.attribute(yes_net1, "largest_religion")),
+     main = "Network Visualization by Religion")
+
+# Add a legend with religion names
+legend("bottomleft",
+       fill = 1:length(unique(network::get.vertex.attribute(yes_net1, "largest_religion"))),
+       legend = unique(network::get.vertex.attribute(yes_net1, "largest_religion")),
+       cex = 0.75,
+       title = "Largest Religion")
+```
+
+
+
+```{r}
 ergm::search.ergmTerms(keywords=c('binary','undirected'))
 ```
 
-`gwdsp` captures the tendency for two nodes to share common neighbors, but unlike `gwesp`, it doesn't require these nodes to form triangles. This can work better in dense networks where clustering is dominated by shared neighbors rather than transitive triangles.
+`gwdsp` captures the tendency for two nodes to share common neighbors, but unlike `gwesp`, it doesn't require these nodes to form triangles. This can work better in dense networks where clustering is dominated by shared neighbors rather than transitive triangles. **Didn't work**
 
-try `density`, `degcor`, `degreepopularity`.
+ `density` and `transitivity` didn't work as well.
+ 
+ 
 
 ```{r}
 model_yes1 <- ergm::ergm(yes_net1 ~ edges + degree1.5, 
@@ -440,6 +457,8 @@ summary(model_yes1)
 Ran for 72 minutes
 `Degreepopularity` shows the propensity for nodes with high degrees (those already well-connected) to be more likely to gain additional edges (connections).
 `Degreepopularity` is replaced automatically by degree1.5, which means the same thing. Thus, I replaced it in the codes as well.
+
+It seems to be working but diagnostics were bad. Will try `gwdegree(0.5, cutoff = 150)` and `gwesp(decay=0.03, fixed = TRUE)`.
 
 ```{r}
 model_yes2 <- ergm::ergm(yes_net1 ~ edges + degree1.5 + 
@@ -508,7 +527,15 @@ network::set.vertex.attribute(yes_net2, "largest_religion", node_df$largest_reli
 yes_net2
 ```
 ```{r}
-plot(yes_net2)
+plot(yes_net2,
+     vertex.col = as.factor(network::get.vertex.attribute(yes_net2, "largest_religion")),
+     main = "Network Visualization by Religion")
+
+legend("bottomleft",
+       fill = 1:length(unique(network::get.vertex.attribute(yes_net2, "largest_religion"))),
+       legend = unique(network::get.vertex.attribute(yes_net2, "largest_religion")),
+       cex = 0.75,
+       title = "Largest Religion")
 ```
 
 
@@ -524,9 +551,39 @@ model_yes11 <- ergm::ergm(yes_net2 ~ edges + degree1.5,
 summary(model_yes11)
 ```
 
+```{r}
+ergm::mcmc.diagnostics(model_yes11)
+```
+```{r}
+igraph_net2 <- intergraph::asIgraph(yes_net2)
+
+# Plot degree distribution
+plot(igraph::degree_distribution(igraph_net2), type = "h",
+     main = "Degree Distribution",
+     xlab = "Degree", ylab = "Proportion of Nodes")
+```
+
+
 
 ```{r}
-model_yes12 <- ergm::ergm(yes_net2 ~ edges + degree1.5 + nodecov("democracy_score"), 
+#trying gwedegree instead of degree1.5 since it might be better at handling skewed distributions
+model_yes12 <- ergm::ergm(yes_net2 ~ edges + gwdegree(0.5, cutoff = 150), 
+                         control = ergm::control.ergm(MCMC.burnin = 1000,
+                                                      MCMC.samplesize = 50000,
+                                                      seed = 123,
+                                                      MCMLE.maxit = 20,
+                                                      parallel = 3,
+                                                      parallel.type = "PSOCK"))
+
+summary(model_yes12)
+```
+
+
+
+
+
+```{r}
+model_yes13 <- ergm::ergm(yes_net2 ~ edges + degree1.5 + gwesp(decay=0.03, fixed = TRUE), 
                          control = ergm::control.ergm(MCMC.burnin = 1000,
                                                       MCMC.samplesize = 50000,
                                                       seed = 123,
@@ -535,7 +592,7 @@ model_yes12 <- ergm::ergm(yes_net2 ~ edges + degree1.5 + nodecov("democracy_scor
                                                       parallel = 3,
                                                       parallel.type = "PSOCK"))
 
-summary(model_yes12)
+summary(model_yes13)
 ```
 
 
@@ -552,6 +609,12 @@ model_yes13 <- ergm::ergm(yes_net2 ~ edges + degree1.5 + nodecov("democracy_scor
 
 summary(model_yes13)
 ```
+
+
+
+
+
+
 
 
 I am not deleting the agreement term yet just in case.
