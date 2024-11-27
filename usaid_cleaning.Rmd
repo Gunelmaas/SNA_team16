@@ -1,0 +1,31 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+library(dplyr)
+```
+
+
+```{r}
+usaid <- readxl::read_excel("d2r_complete_data.xlsx")
+
+```
+
+```{r}
+usaid2022 <- usaid %>% 
+  filter(fiscal_year == 2022) #including only 2023 and 2024
+head(usaid2022)
+```
+```{r}
+unique(usaid2022['country_name'])
+```
+```{r}
+unique(usaid2022['sector_name'])
+```
+```{r}
+usaid2022 %>% 
+  group_by(country_name) %>%
+  summarize(total_disbursements = sum(disbursements, na.rm = TRUE))
+```
+
