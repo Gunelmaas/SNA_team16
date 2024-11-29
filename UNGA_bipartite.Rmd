@@ -355,6 +355,22 @@ node_df$total_disbursements[is.na(node_df$total_disbursements)] <- 0
 ```
 
 ```{r}
+#importing GDP dataset
+gdp <- readr::read_csv('gdp_data.csv')
+
+gdp$country_text_id <- gdp$`Country Code`
+
+gdp$`Country Code` <- NULL
+
+gdp$...1 <- NULL
+
+#merging with node df
+node_df <- node_df |>
+  left_join(gdp, by = "country_text_id")
+
+```
+
+```{r}
 node_df[apply(is.na(node_df), 1, any), ]
 ```
 
@@ -381,6 +397,7 @@ node_df <- node_df[match(incidence_matrix_df$ms_code, node_df$country_text_id), 
 network::set.vertex.attribute(UNGA, "democracy_score", node_df$v2x_polyarchy)
 network::set.vertex.attribute(UNGA, "largest_religion", node_df$largest_religion)
 network::set.vertex.attribute(UNGA, "USAid", node_df$total_disbursements)
+network::set.vertex.attribute(UNGA, "GDP", node_df$gdp)
 ```
 
 ```{r}
@@ -405,6 +422,9 @@ network::set.vertex.attribute(UNGA, "largest_religion",
                            v = 1:176)
 network::set.vertex.attribute(UNGA, "USAid",
                            value = node_df$total_disbursements,
+                           v = 1:176)
+network::set.vertex.attribute(UNGA, "GDP",
+                           value = node_df$gdp,
                            v = 1:176)
 ```
 
