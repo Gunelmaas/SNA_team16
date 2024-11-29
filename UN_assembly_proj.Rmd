@@ -375,7 +375,23 @@ names(religion)[1] <- "country_text_id" #renaming the country column
 node_df <- node_df |>
   left_join(religion, by = "country_text_id")
 ```
+```{r}
+#importing GDP dataset
+gdp <- readr::read_csv('gdp_data.csv')
 
+gdp$country_text_id <- gdp$`Country Code`
+
+gdp$`Country Code` <- NULL
+
+gdp$...1 <- NULL
+
+node_df <- node_df |>
+  left_join(gdp, by = "country_text_id")
+
+node_df <- unique(node_df)
+
+
+```
 
 ```{r}
 node_df[apply(is.na(node_df), 1, any), ]
@@ -412,6 +428,7 @@ yes_net1 <- network::network(adj_matrix2, directed = FALSE, matrix.type = "adjac
 #adding vertex attributes
 network::set.vertex.attribute(yes_net1, "democracy_score", node_df$v2x_polyarchy)
 network::set.vertex.attribute(yes_net1, "largest_religion", node_df$largest_religion)
+network::set.vertex.attribute(yes_net1, "gdp", node_df$gdp)
 ```
 
 ```{r}
@@ -521,6 +538,7 @@ yes_net2 <- network::network(adj_matrix3, directed = FALSE, matrix.type = "adjac
 #adding vertex attributes
 network::set.vertex.attribute(yes_net2, "democracy_score", node_df$v2x_polyarchy)
 network::set.vertex.attribute(yes_net2, "largest_religion", node_df$largest_religion)
+network::set.vertex.attribute(yes_net2, "gdp", node_df$gdp)
 ```
 
 ```{r}
