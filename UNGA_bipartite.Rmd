@@ -531,8 +531,7 @@ summary(model22)
 ```
 
 
-
-
+The `b2sociality(nodes=-1)` term examines whether some resolutions generally receive more votes than others, regardless of specific country-level patterns.
 ```{r}
 # Model 3. Adding b2sociality
 model3 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2sociality(nodes=-1),
@@ -557,47 +556,8 @@ ergm::mcmc.diagnostics(model3)
 ```
 
 
-
-
 ```{r}
 # Model 4. Adding democracy score
-model3 <-ergm::ergm(UNGA ~ edges + b1star(2) + b1cov("democracy_score"),
-                    control = ergm::control.ergm(MCMC.burnin = 5000,
-                                                 MCMC.samplesize = 50000,
-                                                 seed = 123,
-                                                 MCMLE.maxit = 50,
-                                                 parallel = 3,
-                                                 parallel.type = "PSOCK"))
-summary(model4)
-```
-
-
-
-
-
-
-
-```{r}
-
-```
-
-
-Trying balanced religion:
-```{r}
-node_df$largest_religion <- 
-  ifelse(node_df$largest_religion %in% 
-           c("anmggen", "budgen", "hindgen", "judgen", "nonrelig", 
-             "shntgen", "syncgen", "anmgen"),"other",
-         node_df$largest_religion)
-
-table(node_df$largest_religion)
-
-#updating network covariate
-network::set.vertex.attribute(UNGA, "largest_religion", node_df$largest_religion)
-```
-
-The `b2sociality(nodes=-1)` term examines whether some resolutions generally receive more votes than others, regardless of specific country-level patterns.
-```{r}
 model4 <-ergm::ergm(UNGA ~ edges + b1star(2) + b2sociality(nodes=-1) + 
                       b1cov("democracy_score"),
                     control = ergm::control.ergm(MCMC.burnin = 5000,
@@ -609,9 +569,104 @@ model4 <-ergm::ergm(UNGA ~ edges + b1star(2) + b2sociality(nodes=-1) +
 summary(model4)
 ```
 
+
 ```{r}
 ergm::mcmc.diagnostics(model4)
 ```
+
+
+
+```{r}
+# Model 5. Adding religion
+model5 <-ergm::ergm(UNGA ~ edges + b1star(2) + b2sociality(nodes=-1) + 
+                      b1cov("democracy_score") + b1nodematch("religion"),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 50,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model5)
+```
+
+
+Trying balanced religion:
+```{r}
+node_df$religion_balanced <- 
+  ifelse(node_df$largest_religion %in% 
+           c("anmggen", "budgen", "hindgen", "judgen", "nonrelig", 
+             "shntgen", "syncgen", "anmgen"),"other",
+         node_df$largest_religion)
+
+table(node_df$religion_balanced)
+
+#updating network covariate
+network::set.vertex.attribute(UNGA, "religion_b", node_df$religion_balanced)
+```
+
+
+```{r}
+#Same as model 5 but with more balanced religion
+model52 <-ergm::ergm(UNGA ~ edges + b1star(2) + b2sociality(nodes=-1) + 
+                      b1cov("democracy_score") + b1nodematch("religion_b"),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 50,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model52)
+```
+
+If religion_b is still not significant, continue with `religion`.
+
+```{r}
+#Adding US Aid
+model6 <-ergm::ergm(UNGA ~ edges + b1star(2) + b2sociality(nodes=-1) + 
+                      b1cov("democracy_score") + b1nodematch("religion") + 
+                      b1cov("USAid"),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 50,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model6)
+```
+
+
+```{r}
+#Adding GDP
+model7 <-ergm::ergm(UNGA ~ edges + b1star(2) + b2sociality(nodes=-1) + 
+                      b1cov("democracy_score") + b1nodematch("religion") + 
+                      b1cov("USAid") + b1cov("GDP"),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 50,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model7)
+```
+
+
+
+```{r}
+#Adding gwb1nsp term
+model8 <-ergm::ergm(UNGA ~ edges + b1star(2) + b2sociality(nodes=-1) + 
+                      gwb1nsp(0, TRUE) + 
+                      b1cov("democracy_score") + b1nodematch("religion") + 
+                      b1cov("USAid") + b1cov("GDP"),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 50,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model8)
+```
+
+
 
 
 # Trial
