@@ -1,6 +1,9 @@
 ---
 title: "UNGA_bipartite"
-output: 
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '3'
   html_document:
     toc: true
     toc_depth: 3
@@ -436,6 +439,12 @@ node_df <- node_df |>
 node_df <- node_df[match(incidence_matrix_df$ms_code, node_df$country_text_id), ]
 ```
 
+We have decided to make religion variable binomial:
+```{r}
+#dummifying religion column. If country is islamic, the value = 1. If other - 0.
+node_df$if_islamic <- ifelse(node_df$largest_religion == "islmgen", 1, 0)
+node_df$largest_religion <- NULL
+```
 
 
 ```{r}
@@ -448,13 +457,11 @@ vertex_name
 ```
 
 
-
-
 ```{r}
 #setting vertex attributes
 network::set.vertex.attribute(UNGA, "vertex.names", vertex_name)
 network::set.vertex.attribute(UNGA, "democracy_score", node_df$v2x_polyarchy, v = 1:176)
-network::set.vertex.attribute(UNGA, "religion", node_df$largest_religion, v = 1:176)
+network::set.vertex.attribute(UNGA, "islamic", node_df$if_islamic, v = 1:176)
 network::set.vertex.attribute(UNGA, "USAid", node_df$total_disbursements, v = 1:176)
 network::set.vertex.attribute(UNGA, "GDP", node_df$gdp, v = 1:176)
 ```
@@ -462,7 +469,7 @@ network::set.vertex.attribute(UNGA, "GDP", node_df$gdp, v = 1:176)
 
 
 ```{r}
-network::set.vertex.attribute(UNGA, "bipartite", value = rep(176, 176), v = 1:176)
+network::set.vertex.attribute(UNGA, "bipartite", c(rep(0, 176), rep(1, 7)))
 ```
 
 
@@ -474,10 +481,50 @@ summary(UNGA ~ b2degree(1:176))
 ```
 
 
+```{r}
+bipartite_attr <- network::get.vertex.attribute(UNGA, "bipartite")
+print(bipartite_attr)  # This should show 0 for countries and 1 for resolutions.
+```
+
+
+
+```{r}
+# Identify indices of resolutions
+resolution_indices <- which(bipartite_attr == 1)
+
+# Extract degrees for resolutions
+resolution_degrees <- sna::degree(UNGA, cmode = "indegree")[resolution_indices]
+
+# Get resolution names
+resolution_names <- network::get.vertex.attribute(UNGA, "vertex.names")[resolution_indices]
+
+# Create a dataframe with resolution-specific edge counts
+resolution_summary <- data.frame(
+  Resolution = resolution_names,
+  Edges = resolution_degrees
+)
+
+# Print the summary
+print(resolution_summary)
+```
+
+```{r}
+#Network's density
+snafun::g_density(UNGA)
+```
+
+
 # Model
 Hypothesis 1. The popularity effects; some resolutions are more popular than others in a sense that more countries vote in favor of them. For instance some countries may care more about humanitarian issues rather than about territorial disputes. Some resolutions maybe more extreme than others, so if a country votes for it, it condemns Israel more **b2star**, **b2sociality(nodes=-1)**
 
-**gwb2nsp**. 
+**gwb2dsp**. - how many countries voted same way 
+whether two countries voted similarly - **gwb1dsp**.
+
+
+```{r}
+ergm::search.ergmTerms(keywords=c('bipartite','undirected'))
+```
+
 
 
 ```{r}
@@ -516,25 +563,33 @@ texreg::screenreg(list(model1, model2))
 ```
 
 
-
 ```{r}
 # Same as model 2 but trying with constraints
-model22 <-ergm::ergm(UNGA ~ edges + b2star(2),
-                    constraints = ~bd(minout = 0, maxout = c(rep(7, 176), rep(Inf, 7))),
-                    control = ergm::control.ergm(MCMC.burnin = 5000,
-                                                 MCMC.samplesize = 50000,
-                                                 seed = 123,
-                                                 MCMLE.maxit = 50,
-                                                 parallel = 3,
-                                                 parallel.type = "PSOCK"))
-summary(model22)
+#model22 <-ergm::ergm(UNGA ~ edges + b2star(2),
+#                    constraints = ~bd(minout = 0, maxout = c(rep(7, 176), rep(Inf, 7))),
+#                    control = ergm::control.ergm(MCMC.burnin = 5000,
+#                                                 MCMC.samplesize = 50000,
+#                                                 seed = 123,
+#                                                 MCMLE.maxit = 50,
+ #                                                parallel = 3,
+ #                                                parallel.type = "PSOCK"))
+#summary(model22)
+```
+```{r}
+#ergm::mcmc.diagnostics(model22)
 ```
 
 
-The `b2sociality(nodes=-1)` term examines whether some resolutions generally receive more votes than others, regardless of specific country-level patterns.
 ```{r}
-# Model 3. Adding b2sociality
-model3 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2sociality(nodes=-1),
+summary(UNGA ~ edges + b2star(2) + gwb1dsp)
+```
+
+
+
+gwb1dsp
+```{r}
+# Model 3. Adding gwb1dsp
+model3 <-ergm::ergm(UNGA ~ edges + b2star(2) + gwb1dsp,
                     control = ergm::control.ergm(MCMC.burnin = 5000,
                                                  MCMC.samplesize = 50000,
                                                  seed = 123,
@@ -558,8 +613,8 @@ ergm::mcmc.diagnostics(model3)
 
 ```{r}
 # Model 4. Adding democracy score
-model4 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2sociality(nodes=-1) + 
-                      b1cov("democracy_score"),
+model4 <-ergm::ergm(UNGA ~ edges + b2star(2) + 
+                      b1nodematch("democracy_score", diff=TRUE),
                     control = ergm::control.ergm(MCMC.burnin = 5000,
                                                  MCMC.samplesize = 50000,
                                                  seed = 123,
@@ -575,10 +630,9 @@ ergm::mcmc.diagnostics(model4)
 ```
 
 
-
 ```{r}
 # Model 5. Adding religion
-model5 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2sociality(nodes=-1) + 
+model5 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2star(3) + 
                       b1cov("democracy_score") + b1nodematch("religion"),
                     control = ergm::control.ergm(MCMC.burnin = 5000,
                                                  MCMC.samplesize = 50000,
@@ -591,6 +645,7 @@ summary(model5)
 
 
 Trying balanced religion:
+Muslim country - 1
 ```{r}
 node_df$religion_balanced <- 
   ifelse(node_df$largest_religion %in% 
@@ -607,7 +662,7 @@ network::set.vertex.attribute(UNGA, "religion_b", node_df$religion_balanced)
 
 ```{r}
 #Same as model 5 but with more balanced religion
-model52 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2sociality(nodes=-1) + 
+model52 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2star(3) + 
                       b1cov("democracy_score") + b1nodematch("religion_b"),
                     control = ergm::control.ergm(MCMC.burnin = 5000,
                                                  MCMC.samplesize = 50000,
@@ -618,17 +673,23 @@ model52 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2sociality(nodes=-1) +
 summary(model52)
 ```
 
+
+```{r}
+texreg::screenreg(list(model1, model2, model3, model4, model5))
+```
+
+
 If religion_b is still not significant, continue with `religion`.
 
 ```{r}
 #Adding US Aid
-model6 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2sociality(nodes=-1) + 
+model6 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2star(3) + 
                       b1cov("democracy_score") + b1nodematch("religion") + 
                       b1cov("USAid"),
-                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                    control = ergm::control.ergm(MCMC.burnin = 10000,
                                                  MCMC.samplesize = 50000,
                                                  seed = 123,
-                                                 MCMLE.maxit = 50,
+                                                 MCMLE.maxit = 15,
                                                  parallel = 3,
                                                  parallel.type = "PSOCK"))
 summary(model6)
@@ -637,16 +698,26 @@ summary(model6)
 
 ```{r}
 #Adding GDP
-model7 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2sociality(nodes=-1) + 
+model7 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2star(3) + 
                       b1cov("democracy_score") + b1nodematch("religion") + 
                       b1cov("USAid") + b1cov("GDP"),
                     control = ergm::control.ergm(MCMC.burnin = 5000,
                                                  MCMC.samplesize = 50000,
                                                  seed = 123,
-                                                 MCMLE.maxit = 50,
+                                                 MCMLE.maxit = 12,
                                                  parallel = 3,
                                                  parallel.type = "PSOCK"))
 summary(model7)
+```
+
+
+```{r}
+#table with models
+texreg::screenreg(list(model1, model2, model3, model4, model5, model6, model7))
+```
+
+```{r}
+ergm::mcmc.diagnostics(model7)
 ```
 
 
@@ -691,6 +762,7 @@ mdata <- matrix(
 # Print the matrix
 print(mdata)
 ```
+
 
 ```{r}
 kidsnet <- network::network(mdata, directed = FALSE, bipartite = TRUE)
