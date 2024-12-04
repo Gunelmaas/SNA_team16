@@ -112,6 +112,12 @@ data <- data |>
 ```
 
 
+```{r}
+write.csv(data, file = "data.csv", row.names = FALSE)
+```
+
+
+
 
 ### Making a Bipartite network
 While unimodal networks can also be represented by adjacency matrices, bipartite networks require **incidence matrices**.
@@ -119,7 +125,7 @@ While unimodal networks can also be represented by adjacency matrices, bipartite
 ```{r}
 incidence_matrix_df <- data %>%
   filter(ms_vote == 'Y') %>%                 # Filter Yes votes
-  select(ms_code, resolution) %>%      # Select relevant columns
+  select(ms_code, resolution, ms_vote) %>%      # Select relevant columns
   mutate(value = 1) %>%                # Assign value 1 for edges
   pivot_wider(names_from = resolution, # Create columns for resolutions
               values_from = value,
@@ -130,9 +136,23 @@ incidence_matrix <- as.matrix(incidence_matrix_df[,-1])  # Exclude country names
 colnames(incidence_matrix) <- NULL
 ```
 
+
+
+
 ```{r}
-incidence_matrix
+data$vote_binary <- ifelse(data$ms_vote == "Y", 1, 0)
+
+# Create the incidence matrix
+library(tidyr)
+incidence_matrix_df <- data %>%
+  select(ms_code, resolution, vote_binary) %>%
+  pivot_wider(names_from = resolution, values_from = vote_binary, values_fill = 0)
+
+incidence_matrix <- as.matrix(incidence_matrix_df[,-1])  # Exclude country names
+colnames(incidence_matrix) <- NULL
+print(incidence_matrix)
 ```
+
 
 ```{r}
 any(is.na(incidence_matrix))
@@ -152,7 +172,7 @@ UNGA
 
 
 ```{r}
-network::set.vertex.attribute(UNGA, "bipartite", value = rep(176, 176), v = 1:176)
+network::set.vertex.attribute(UNGA, "bipartite", value = rep(190, 190), v = 1:190)
 UNGA
 ```
 
@@ -160,7 +180,7 @@ UNGA
 # Degree partition 1 (countries)
 summary(UNGA ~ b1degree(1:7))
 # Degree partition 2 (resolutions)
-summary(UNGA ~ b2degree(1:176))
+summary(UNGA ~ b2degree(1:190))
 ```
 
 
@@ -422,14 +442,16 @@ node_df <- node_df |>
 node_df[apply(is.na(node_df), 1, any), ]
 ```
 
-Missing religion for Mauritania, Mongolia, Serbia. They will be filled in manually with the data from [WorldPopulationReviw](https://worldpopulationreview.com/country-rankings/religion-by-country) that got data from CIA, UN, etc.
+Missing religion for Marshall Islands, Mauritania, Mongolia, Serbia, and South Sudan. They will be filled in manually with the data from [WorldPopulationReviw](https://worldpopulationreview.com/country-rankings/religion-by-country) that got data from CIA, UN, etc.
 ```{r}
 #manually filling in the data
 node_df <- node_df |>
   mutate(largest_religion = case_when(
+    country_text_id == 'MHL' ~ 'chrstgen',
     country_text_id == 'MRT' ~ 'islmgen',
     country_text_id == 'MNG' ~ 'budgen',
     country_text_id == 'SRB' ~ 'chrstgen',
+    country_text_id == 'SSD' ~ 'chrstgen',
     TRUE ~ largest_religion))
 ```
 
@@ -460,16 +482,16 @@ vertex_name
 ```{r}
 #setting vertex attributes
 network::set.vertex.attribute(UNGA, "vertex.names", vertex_name)
-network::set.vertex.attribute(UNGA, "democracy_score", node_df$v2x_polyarchy, v = 1:176)
-network::set.vertex.attribute(UNGA, "islamic", node_df$if_islamic, v = 1:176)
-network::set.vertex.attribute(UNGA, "USAid", node_df$total_disbursements, v = 1:176)
-network::set.vertex.attribute(UNGA, "GDP", node_df$gdp, v = 1:176)
+network::set.vertex.attribute(UNGA, "democracy_score", node_df$v2x_polyarchy, v = 1:190)
+network::set.vertex.attribute(UNGA, "islamic", node_df$if_islamic, v = 1:190)
+network::set.vertex.attribute(UNGA, "USAid", node_df$total_disbursements, v = 1:190)
+network::set.vertex.attribute(UNGA, "GDP", node_df$gdp, v = 1:190)
 ```
 
 
 
 ```{r}
-network::set.vertex.attribute(UNGA, "bipartite", c(rep(0, 176), rep(1, 7)))
+network::set.vertex.attribute(UNGA, "bipartite", c(rep(0, 190), rep(1, 7)))
 ```
 
 
@@ -477,7 +499,7 @@ network::set.vertex.attribute(UNGA, "bipartite", c(rep(0, 176), rep(1, 7)))
 # Degree partition 1 (countries)
 summary(UNGA ~ b1degree(1:7))
 # Degree partition 2 (resolutions)
-summary(UNGA ~ b2degree(1:176))
+summary(UNGA ~ b2degree(1:190))
 ```
 
 
@@ -511,6 +533,9 @@ print(resolution_summary)
 ```{r}
 #Network's density
 snafun::g_density(UNGA)
+
+#isolates
+snafun::has_isolates(UNGA)
 ```
 
 
@@ -589,7 +614,7 @@ summary(UNGA ~ edges + b2star(2) + gwb1dsp)
 gwb1dsp
 ```{r}
 # Model 3. Adding gwb1dsp
-model3 <-ergm::ergm(UNGA ~ edges + b2star(2) + gwb1dsp,
+model3 <-ergm::ergm(UNGA ~ edges + b2star(2) + b1degree(0),
                     control = ergm::control.ergm(MCMC.burnin = 5000,
                                                  MCMC.samplesize = 50000,
                                                  seed = 123,
@@ -598,6 +623,14 @@ model3 <-ergm::ergm(UNGA ~ edges + b2star(2) + gwb1dsp,
                                                  parallel.type = "PSOCK"))
 summary(model3)
 ```
+
+
+```{r}
+ergm::mcmc.diagnostics(model3)
+```
+
+
+
 
 
 ```{r}
