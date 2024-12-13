@@ -1,0 +1,938 @@
+---
+title: "UNGA_bipartite"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '3'
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(error = TRUE) # ignore the errors
+set.seed(123) #set the seed for consistent results
+
+#libraries
+library(dplyr)
+library(tidyverse)
+```
+
+
+# Datasets
+## UNGA
+
+```{r}
+#UNGA dataset
+
+assembly <- readr::read_csv("2024_09_12_ga_resolutions_voting.csv")
+#assembly <- readexcel::read_excel("2024_09_12_ga_resolutions_voting.xls")
+head(assembly)
+```
+Country name descrepancies: Yogoslavia republik, USSR, Ukranian SSR, Belorussian SSR, Turkey and Turkiye, East and West Germany, Former Yugoslav Republic of Macedonia, Serbia and Montenegro, etc.
+
+
+```{r}
+unique(assembly['modality'])
+```
+
+We chose years 2023 and 2024 for the Palestine Topic because of the events that happened in Gaza in October 2023.
+```{r}
+# working with the date variable
+assembly <- assembly |> dplyr::mutate(date = lubridate::ymd(date))
+
+data <- assembly %>% 
+  dplyr::mutate(year = lubridate::year(date)) %>% #changing year variable
+  filter(year %in% c(2023, 2024)) #including only 2023 and 2024
+```
+
+
+```{r}
+#how many countries are in UN
+unique(data['ms_code'])
+```
+
+
+```{r}
+unique(data['title'])
+```
+
+```{r}
+unique(data['subjects'])
+```
+
+**Related topics**: PALESTINE QUESTION, TERRITORIES OCCUPIED BY ISRAEL--SETTLEMENT POLICY, TERRITORIES OCCUPIED BY ISRAEL--HUMAN RIGHTS--REPORTS, TERRITORIES OCCUPIED BY ISRAEL--NATURAL RESOURCES, TERRITORIES OCCUPIED BY ISRAEL--HUMAN RIGHTS
+```{r}
+# include subject where words PALESTINE and ISRAEL are present
+data <- data |> 
+  filter(stringr::str_detect(subjects, "PALESTINE|ISRAEL"))
+```
+
+
+```{r}
+#include only these variables
+data <- data[c('ms_code', 'ms_vote', 'resolution', 
+                                       'title')]
+# deleting NV votes
+data <- data |> 
+  filter(ms_vote != "NV")
+```
+About 100 votes were NV
+
+
+```{r}
+#checking for duplicates
+nrow(unique(data)) == nrow(data)
+```
+no duplicates
+
+```{r}
+#which resolutions are held
+unique(data['title'])
+```
+
+Six titles overall that are about Palestine-Israel conflict.
+**Seven** resolutions.
+```{r}
+data |>
+  group_by(resolution) |>
+  summarise(vote_count = n())
+```
+
+```{r}
+data |> 
+  filter(ms_code == 'ISR')
+```
+Israel voted 'No' in all seven resolutions.
+
+
+```{r}
+#sorting alphabetically
+data <- data |> 
+  arrange(ms_code)
+```
+
+
+```{r}
+write.csv(data, file = "data.csv", row.names = FALSE)
+```
+
+
+
+
+### Making a Bipartite network
+While unimodal networks can also be represented by adjacency matrices, bipartite networks require **incidence matrices**.
+
+```{r}
+incidence_matrix_df <- data %>%
+  filter(ms_vote == 'Y') %>%                 # Filter Yes votes
+  select(ms_code, resolution, ms_vote) %>%      # Select relevant columns
+  mutate(value = 1) %>%                # Assign value 1 for edges
+  pivot_wider(names_from = resolution, # Create columns for resolutions
+              values_from = value,
+              values_fill = 0)         # Fill missing values with 0
+
+# Convert to a matrix
+incidence_matrix <- as.matrix(incidence_matrix_df[,-1])  # Exclude country names
+colnames(incidence_matrix) <- NULL
+```
+
+
+
+
+```{r}
+data$vote_binary <- ifelse(data$ms_vote == "Y", 1, 0)
+
+# Create the incidence matrix
+library(tidyr)
+incidence_matrix_df <- data %>%
+  select(ms_code, resolution, vote_binary) %>%
+  pivot_wider(names_from = resolution, values_from = vote_binary, values_fill = 0)
+
+incidence_matrix <- as.matrix(incidence_matrix_df[,-1])  # Exclude country names
+colnames(incidence_matrix) <- NULL
+print(incidence_matrix)
+```
+
+
+```{r}
+any(is.na(incidence_matrix))
+```
+
+
+```{r}
+#matrix dimensions
+dim(incidence_matrix)
+```
+
+
+```{r}
+UNGA <- network::network(incidence_matrix, directed = FALSE, bipartite = TRUE)
+UNGA
+```
+
+
+```{r}
+network::set.vertex.attribute(UNGA, "bipartite", value = rep(190, 190), v = 1:190)
+UNGA
+```
+
+```{r}
+# Degree partition 1 (countries)
+summary(UNGA ~ b1degree(1:7))
+# Degree partition 2 (resolutions)
+summary(UNGA ~ b2degree(1:190))
+```
+
+
+
+## Democracy Data
+
+```{r}
+# V-Dem project
+democracy <- readr::read_csv("V-Dem-CY-Full+Others-v14.csv")
+```
+
+```{r}
+#choosing the latest available year
+democracy <- democracy |> 
+  filter(year == 2023)
+
+#leaving only needed columns
+democracy <- democracy[c('country_text_id', 'v2x_polyarchy', 'v2x_libdem', 
+                       'v2x_partipdem', 'v2x_delibdem', 'v2x_egaldem')]
+```
+**v2x_polyarchy** - To what extent is the ideal of electoral democracy in its fullest sense achieved?
+**v2x_libdem** - To what extent is the ideal of liberal democracy achieved?
+**v2x_partipdem** - To what extent is the ideal of participatory democracy achieved?
+**v2x_delibdem** - To what extent is the ideal of deliberative democracy achieved?
+**v2x_egaldem** - To what extent is the ideal of egalitarian democracy achieved? (rights are protected equally across all groups)
+
+```{r}
+#checking correlations
+cor.test(democracy$v2x_polyarchy, democracy$v2x_partipdem, method = "pearson")
+```
+
+```{r}
+cor.test(democracy$v2x_polyarchy, democracy$v2x_egaldem, method = "pearson")
+```
+Since they are highly correlated, we are choosing only electoral democracy score.
+```{r}
+democracy <- democracy[c('country_text_id', 'v2x_polyarchy')]
+```
+
+```{r}
+#arranging countries alphabetically
+democracy <- democracy |> 
+  arrange(country_text_id)
+```
+
+
+
+## Religion Data
+```{r}
+#importing the dataset
+religion <- readr::read_csv('WRP_national.csv')
+```
+
+```{r}
+#picking the most recent year
+religion <- religion |> 
+  filter(year == 2010)
+```
+
+
+```{r}
+#listing religious groups
+religion_columns <- c( "chrstgen", "judgen", "islmgen", "budgen", "zorogen", "hindgen", 
+                      "sikhgen", "shntgen", "bahgen", "taogen", "jaingen", "confgen", 
+                      "syncgen", "anmgen", "nonrelig", "othrgen")
+
+#creating a variable with the most popular one (highest population)
+religion <- religion %>%
+  rowwise() %>%
+  mutate(
+    largest_religion = religion_columns[which.max(c_across(all_of(religion_columns)))]
+  ) %>%
+  ungroup()
+
+#selecting only needed columns
+religion <- religion[c('name', 'largest_religion')]
+```
+
+```{r}
+as.vector(religion['name'])
+```
+
+
+The data is not using ISO 3166-1 alpha-3 country codes. We have to match them manually:
+```{r}
+mapping <- data.frame(
+  custom_code = c("USA", "CAN", "BHM", "CUB", "HAI", "DOM", "JAM", "TRI", "BAR", "DMA", 
+                  "GRN", "SLU", "SVG", "AAB", "SKN", "MEX", "BLZ", "GUA", "HON", "SAL", 
+                  "NIC", "COS", "PAN", "COL", "VEN", "GUY", "SUR", "ECU", "PER", "BRA", 
+                  "BOL", "PAR", "CHL", "ARG", "URU", "UKG", "IRE", "NTH", "BEL", "LUX", 
+                  "FRN", "MNC", "LIE", "SWZ", "SPN", "AND", "POR", "GMY", "POL", "AUS", 
+                  "HUN", "CZR", "SLO", "ITA", "SNM", "MLT", "ALB", "MNG", "MAC", "CRO", 
+                  "YUG", "BOS", "KOS", "SLV", "GRC", "CYP", "BUL", "MLD", "ROM", "RUS", 
+                  "EST", "LAT", "LIT", "UKR", "BLR", "ARM", "GRG", "AZE", "FIN", "SWD", 
+                  "NOR", "DEN", "ICE", "CAP", "STP", "GNB", "EQG", "GAM", "MLI", "SEN", 
+                  "BEN", "MAA", "NIR", "CDI", "GUI", "BFO", "LBR", "SIE", "GHA", "TOG", 
+                  "CAO", "NIG", "GAB", "CEN", "CHA", "CON", "DRC", "UGA", "KEN", "TAZ", 
+                  "BUI", "RWA", "SOM", "DJI", "ETH", "ERI", "ANG", "MZM", "ZAM", "ZIM", 
+                  "MAW", "SAF", "NAM", "LES", "BOT", "SWA", "MAG", "COM", "MAS", "SEY", 
+                  "MOR", "ALG", "TUN", "LIB", "SUD", "IRN", "TUR", "IRQ", "EGY", "SYR", 
+                  "LEB", "JOR", "ISR", "SAU", "YEM", "KUW", "BAH", "QAT", "UAE", "OMA", 
+                  "AFG", "TKM", "TAJ", "KYR", "UZB", "KZK", "CHN", "TAW", "PRK", "ROK", 
+                  "JPN", "IND", "BHU", "PAK", "BNG", "MYA", "SRI", "MAD", "NEP", "THI", 
+                  "CAM", "LAO", "DRV", "MAL", "SIN", "BRU", "PHI", "INS", "ETM", "AUL", 
+                  "PNG", "NEW", "VAN", "SOL", "KIR", "TUV", "FIJ", "TON", "NAU", "MSI", 
+                  "PAL", "FSM", "WSM"),
+  iso3c = c("USA", "CAN", "BHS", "CUB", "HTI", "DOM", "JAM", "TTO", "BRB", "DMA", 
+            "GRD", "LCA", "VCT", "ATG", "KNA", "MEX", "BLZ", "GTM", "HND", "SLV", 
+            "NIC", "CRI", "PAN", "COL", "VEN", "GUY", "SUR", "ECU", "PER", "BRA", 
+            "BOL", "PRY", "CHL", "ARG", "URY", "GBR", "IRL", "NLD", "BEL", "LUX", 
+            "FRA", "MCO", "LIE", "CHE", "ESP", "AND", "PRT", "DEU", "POL", "AUT", 
+            "HUN", "CZE", "SVK", "ITA", "SMR", "MLT", "ALB", "MNE", "MKD", "HRV", 
+            "YUG", "BIH", "XKX", "SVN", "GRC", "CYP", "BGR", "MDA", "ROU", "RUS", 
+            "EST", "LVA", "LTU", "UKR", "BLR", "ARM", "GEO", "AZE", "FIN", "SWE", 
+            "NOR", "DNK", "ISL", "CPV", "STP", "GNB", "GNQ", "GMB", "MLI", "SEN", 
+            "BEN", "MAR", "NER", "CIV", "GIN", "BFA", "LBR", "SLE", "GHA", "TGO", 
+            "CMR", "NGA", "GAB", "CAF", "TCD", "COG", "COD", "UGA", "KEN", "TZA", 
+            "BDI", "RWA", "SOM", "DJI", "ETH", "ERI", "AGO", "MOZ", "ZMB", "ZWE", 
+            "MWI", "ZAF", "NAM", "LSO", "BWA", "SWZ", "MDG", "COM", "MUS", "SYC", 
+            "MAR", "DZA", "TUN", "LBY", "SDN", "IRN", "TUR", "IRQ", "EGY", "SYR", 
+            "LBN", "JOR", "ISR", "SAU", "YEM", "KWT", "BHR", "QAT", "ARE", "OMN", 
+            "AFG", "TKM", "TJK", "KGZ", "UZB", "KAZ", "CHN", "TWN", "PRK", "KOR", 
+            "JPN", "IND", "BTN", "PAK", "BGD", "MMR", "LKA", "MDV", "NPL", "THA", 
+            "KHM", "LAO", "VNM", "MYS", "SGP", "BRN", "PHL", "IDN", "TLS", "AUS", 
+            "PNG", "NZL", "VUT", "SLB", "KIR", "TUV", "FJI", "TON", "NRU", "WSM", 
+            "PLW", "FSM", "WSM")
+)
+
+#merging religion with mapping
+religion <- religion |>
+  left_join(mapping, by = c("name" = "custom_code")) |>
+  mutate(name = ifelse(!is.na(iso3c), iso3c, name)) |>
+  select(-iso3c)
+```
+
+
+```{r}
+#which religious groups are the most popular
+unique(religion['largest_religion'])
+```
+
+```{r}
+# countries where majority of population is non-religious
+religion |> 
+  filter(largest_religion == 'nonrelig')
+```
+
+```{r}
+#sorting alphabetically
+religion <- religion |> 
+  arrange(name)
+```
+
+
+## US Aid Data
+
+Data source: https://results.usaid.gov/results/country?fiscalYear=2023
+```{r}
+usaid <- readxl::read_excel("d2r_complete_data.xlsx")
+```
+
+```{r}
+#choosing the latest year
+usaid <- usaid %>% 
+  filter(fiscal_year == 2022) #including only 2023 and 2024
+
+head(usaid)
+```
+
+```{r}
+unique(usaid['country_name'])
+```
+
+```{r}
+unique(usaid['sector_name'])
+```
+
+```{r}
+#summing the values
+usaid <- usaid %>% 
+  group_by(country_name) %>%
+  summarize(total_disbursements = sum(disbursements, na.rm = TRUE))
+```
+
+
+```{r}
+country_names <- usaid$country_name
+#converting country names to iso3c country codes
+usaid$country_text_id <- countrycode::countrycode(country_names, 
+                                              origin = "country.name", 
+                                              destination = "iso3c")
+
+usaid <- usaid[c("country_text_id", "total_disbursements")]
+head(usaid)
+```
+
+```{r}
+#dropping NAs
+usaid <- drop_na(usaid)
+```
+
+```{r}
+#sorting alphabetically
+usaid <- usaid |> 
+  arrange(country_text_id)
+```
+
+
+## GDP Dataset
+
+```{r}
+#importing GDP dataset
+gdp <- readr::read_csv('gdp_data.csv')
+```
+
+```{r}
+#renaming the column
+gdp$country_text_id <- gdp$`Country Code`
+
+#dropping unnecessary columns
+gdp$`Country Code` <- NULL
+gdp$...1 <- NULL
+```
+
+
+## Covariate dataset
+
+```{r}
+# democracy index covariate
+countries <- incidence_matrix_df$ms_code
+
+node_df <- data.frame(country_text_id = countries)
+
+#merging with religion
+names(religion)[1] <- "country_text_id" #renaming the country column
+node_df <- node_df |>
+  left_join(religion, by = "country_text_id")
+
+# merging with democracy scores
+node_df <- node_df |>
+  left_join(democracy, by = "country_text_id")
+
+# using mean scores to fill in missing values
+node_df$v2x_polyarchy[is.na(node_df$v2x_polyarchy)] <- mean(node_df$v2x_polyarchy, na.rm = TRUE)
+
+#merging USAID data into node_df
+node_df <- node_df |>
+  left_join(usaid, by = "country_text_id")
+
+#filling missing USAID values with 0
+node_df$total_disbursements[is.na(node_df$total_disbursements)] <- 0
+
+#merging with GDP
+node_df <- node_df |>
+  left_join(gdp, by = "country_text_id")
+```
+
+
+```{r}
+node_df[apply(is.na(node_df), 1, any), ]
+```
+
+Missing religion for Marshall Islands, Mauritania, Mongolia, Serbia, and South Sudan. They will be filled in manually with the data from [WorldPopulationReviw](https://worldpopulationreview.com/country-rankings/religion-by-country) that got data from CIA, UN, etc.
+```{r}
+#manually filling in the data
+node_df <- node_df |>
+  mutate(largest_religion = case_when(
+    country_text_id == 'MHL' ~ 'chrstgen',
+    country_text_id == 'MRT' ~ 'islmgen',
+    country_text_id == 'MNG' ~ 'budgen',
+    country_text_id == 'SRB' ~ 'chrstgen',
+    country_text_id == 'SSD' ~ 'chrstgen',
+    TRUE ~ largest_religion))
+```
+
+
+```{r}
+#matching node_df rows with the rows of incidence matrix
+node_df <- node_df[match(incidence_matrix_df$ms_code, node_df$country_text_id), ]
+```
+
+We have decided to make religion variable binomial:
+```{r}
+#dummifying religion column. If country is islamic, the value = 1. If other - 0.
+node_df$if_islamic <- ifelse(node_df$largest_religion == "islmgen", 1, 0)
+node_df$largest_religion <- NULL
+```
+
+
+```{r}
+vertex_name <- node_df$country_text_id
+resolutions <- c('ARESES-1021', 'ARES78170', 'ARESES-1023', 
+                      'ARES7876', 'ARESES-1022', 'ARES7877', 'ARES7878') #resolution names
+
+vertex_name <- append(vertex_name, resolutions)
+vertex_name
+```
+
+
+```{r}
+#setting vertex attributes
+network::set.vertex.attribute(UNGA, "vertex.names", vertex_name)
+network::set.vertex.attribute(UNGA, "democracy_score", node_df$v2x_polyarchy, v = 1:190)
+network::set.vertex.attribute(UNGA, "islamic", node_df$if_islamic, v = 1:190)
+network::set.vertex.attribute(UNGA, "USAid", node_df$total_disbursements, v = 1:190)
+network::set.vertex.attribute(UNGA, "GDP", node_df$gdp, v = 1:190)
+```
+
+
+
+```{r}
+network::set.vertex.attribute(UNGA, "bipartite", c(rep(0, 190), rep(1, 7)))
+```
+
+
+```{r}
+# Degree partition 1 (countries)
+summary(UNGA ~ b1degree(1:7))
+# Degree partition 2 (resolutions)
+summary(UNGA ~ b2degree(1:190))
+```
+
+
+```{r}
+bipartite_attr <- network::get.vertex.attribute(UNGA, "bipartite")
+print(bipartite_attr)  # This should show 0 for countries and 1 for resolutions.
+```
+
+
+
+```{r}
+# Identify indices of resolutions
+resolution_indices <- which(bipartite_attr == 1)
+
+# Extract degrees for resolutions
+resolution_degrees <- sna::degree(UNGA, cmode = "indegree")[resolution_indices]
+
+# Get resolution names
+resolution_names <- network::get.vertex.attribute(UNGA, "vertex.names")[resolution_indices]
+
+# Create a dataframe with resolution-specific edge counts
+resolution_summary <- data.frame(
+  Resolution = resolution_names,
+  Edges = resolution_degrees
+)
+
+# Print the summary
+print(resolution_summary)
+```
+With the exception of resolution ARES78170 and ARESES-1021, the resolutions tend to have a similar number of votes in favor. Most countries voted in favor of all resolutions with the exception of ARES78170 as it only received 86 votes in favor out of 190 possible ones. The resolution with the highest amount of votes is ARES7877
+
+```{r}
+# Identify indices of countries
+resolution_indices <- which(bipartite_attr == 0)
+
+# Extract degrees for countries
+resolution_degrees <- sna::degree(UNGA, cmode = "indegree")[resolution_indices]
+
+# Get country names
+resolution_names <- network::get.vertex.attribute(UNGA, "vertex.names")[resolution_indices]
+
+# Create a dataframe with country-specific edge counts
+resolution_summary <- data.frame(
+  Country = resolution_names,
+  Edges = resolution_degrees
+)
+
+# Print the summary
+print(resolution_summary)
+```
+```{r}
+# density graph showing the distribution of times countries voted towards resolutions
+ggplot2::ggplot(resolution_summary, aes(x=Edges)) +
+    ggplot2::geom_density() + ggplot2::ggtitle("Distribution of Votes in Favor of Resolutions") +
+  theme_classic()
+```
+
+The notable peak around 6-7 edges, indicate that many countries tend to vote in favor of most or all resolutions (6-7 out of 7 possible resolutions). There's relatively low density between 0-2 edges, showing that very few countries did not vote in favor or did so for only a few resolutions. There's a gradual increase in density starting around 4 edges, with the steepest increase occurring between 5-6 edges. This indicates that the most common pattern is for countries to vote in favor of a majority of resolutions.
+
+```{r}
+#Network's density
+snafun::g_density(UNGA)
+```
+The high density reveals that our network is quite dense as 72% of all possible edge connections in this network exist. This is in accordance to our density graph above as it illustrates a tendency for countries to vote for 6 or 7 resolutions resulting in a highly connected network. 
+
+Since we are dealing with a bipartite network, to be able to measure other things such as transitivity, subgroups, etc.  we will project the network and make it unipartite. Note: this is only done for this purpose, for the rest of the analysis we will continue using our bipartite network 
+
+```{r}
+# making the network unipartite
+UNGA_i <- snafun::to_igraph(UNGA)
+projected_UNGA <- igraph::bipartite_projection(UNGA_i)
+projected_UNGA
+
+
+```
+As we can see from the number of nodes and edges, the first projection is our countries one. We will not focus on the second partition as this network is fully connected considering that there are countries that voted for all resolutions.
+```{r}
+# saving countries projection 
+country_network_i <- projected_UNGA$proj1
+country_network_i
+```
+
+We proceed with our network measures.
+```{r}
+snafun::g_summary(country_network_i)
+```
+This network, as our original, has 190 countries however the number of edges has tremendously increased from 960 to 15103 because in this format a single vote in favor connects one country to at least 85 other ones (minimum number of votes in favor of resolution ARES78170 minus one) 
+
+The transitivity score of our network is extremely large, indicating that if country A and B vote similarly (both in favor) on a resolutions, and B and C vote in favor of some resolution, then it's almost certain (98.4% of the time) that A and C also vote similarly. The high transitivity indicates high consistency in voting patterns in resolutions, *and a high tendency of voting in cohesive groups*. **not sure about this part**
+
+Looking at the density of the network we can see that after projection it increased from 72.1% to 84.1%. This makes sense as when projecting a lot of countries get connected even when they share one vote. The increase to 84.1% in the projected country-country network means that 84.1% of all possible pairs of countries share at least one common "yes" vote. 
+
+The dyad census reveals that there are 15103 mutual edges in this network (equivalent to number of edges in this network since undirected) while the null value of 2852 represents the number of edges that could have been formed. This once again reveals that our network is highly connected as mutual edges are much larger than null. 
+
+Reciporcity score has no meaning since network is undirected. 
+
+There are 14 isolates in our network. 14 countries did not vote in favor for any of the resolutions. The following code displays the country codes of the isolates.
+```{r}
+snafun::extract_isolates(country_network_i)
+```
+Cameroon, Federate Sates of Micronesia, Israel, Kiribati, Liberia, Marshall Islands, Nauru, Palau, Papua New Guinea, Paraguay, Togo, Tonga, and the United States did not vote in favor of any resolutions. 
+
+```{r}
+snafun::plot_centralities(country_network_i)
+```
+There is relatively more variability in betwenness centrality score in comparison to the others. Betweenness centrality measures the amount of stress each node has relatively to the number of geodesic in the network. A lot of countries have the highest score of around 2.2, while the lowest is 0. A score of 0 means that certain countries never lie on the shortest path or act as bridges between others.        
+
+Closeness score measures the average shorted distance between all vertices. The very narrow range (between ~0.0044 and 0.0057) indicates that closeness scores tend to be similar between all points. Only one particular country stands out as having a lower score but considering the scale the difference is not that distinctive. 
+
+Eccentricity measures the maximum number of nodes that country have to go through to reach every other country. Most countries have an eccentricity score of 1 or 2 meaning that for any of these countries all other countries (that are connected) can be reached between 1 or 2 steps. The low values are not surprising considering how interconnected our network is. Once again the isolates of this graph can be spotted by the fact that their eccentricity scores are 0. 
+
+The degree distribution is what we expected based on our high density score. Most countries tend to have really large degrees (150-175). The 14 isolates can be spotted on the left side of this graph. 
+
+**CUG test**
+
+Testing whether some of the measures are statistically signicant
+```{r}
+# changing it into network object so it works
+country_network <- snafun::to_network(country_network_i)
+
+# transitivity
+trans_fun <- function(x, directed = FALSE) {  
+  x <- snafun::fix_cug_input(x, directed = directed)
+  snafun::g_transitivity(x)
+}
+
+(cug_tran <- sna::cug.test(country_network, mode = "graph", 
+                                 FUN = trans_fun, 
+                                 cmode = "edges", reps = 1000)) # set to edges to take into account size and density 
+
+sna::plot.cug.test(cug_tran)
+```
+
+The p-value is statistically significant, hence, we can conclude that our transitivity is greater than most networks of this size. The black histogram (apparent as a line in this case due to scale) represents the overall distribution of the transitivity scores of the simulated networks, while the red line the score of our countries network (distinctively higher). 
+```{r}
+betw_fun <- function(x, directed = FALSE) {  # note: directed = FALSE!
+  x <- snafun::fix_cug_input(x, directed = directed)
+  snafun::g_centralize(x, measure = "betweenness", directed = directed)$centralization
+}
+
+(cug_betw <- sna::cug.test(country_network, mode = "graph", FUN = betw_fun, 
+                                 cmode = "edges", 
+                                 reps = 1000))
+sna::plot.cug.test(cug_betw)
+```
+
+Our betweeness scores are exceptionally small for the size of our network as most tend to have a betweenness score around 0.00015. 
+```{r}
+closeness_fun <- function(x, directed = FALSE) {  # note: directed = FALSE!
+  x <- snafun::fix_cug_input(x, directed = directed)
+  snafun::g_centralize(x, measure = "closeness", directed = directed)$centralization
+}
+
+(cug_closeness <- sna::cug.test(country_network, mode = "graph", FUN = betw_fun, 
+                                 cmode = "edges", 
+                                 reps = 1000))
+sna::plot.cug.test(cug_closeness)
+```
+Our closeness scores are very small in comparison to similar size networks. Our closeness score stands more to the left 
+
+**Detecting communities**
+
+Checking for communities, first we need to remove isolates as these algorithms tend to assign them to their own communities. The girvan and the walktrap algorithm were also considered howver they both assigned all countries into a single cluster.
+```{r}
+# setting seed just in case
+set.seed(123)
+# removing isolates
+country_no_isolates <- snafun::remove_isolates(country_network_i) # need to do it with igraph object
+
+# running louvain community detction algorithm
+louvain <- snafun::extract_comm_louvain(country_no_isolates)
+
+# check the modularity
+igraph::modularity(louvain) 
+
+# checking which community each node belongs to
+igraph::membership(louvain)
+
+snafun::plot(louvain, country_no_isolates)
+```
+Two communities were detected, however at first sight it appears that there is not a clear distinction of separation in terms of geography since countries from all continents appear in all clusters. Some patterns that were spotted, is that major world economies and powers such as Germany, China, France, India, Great Britain, South Korea, and Japan all appear in cluster 2 along with other quite distinctive nations. The majority of communities that have a majority muslim population and are part in the Middle East appear to be in cluster 1 although several can be found in cluster 2 (Cluster 1: Bahrain, Oman, Iran, Kuwait, Qatar, Saudi Arabia, Syria, and Turkey; Cluster 2: United Arab Emirates, Lebanon, Jordan, Yemen). The fact that no super distinctive patterns appear may be partly explained to the extremely low modularity score of 0.6% as it indicates that the divisions between communities was not strong. This highlights that UN voting patterns and international policy in general is extremely complex and cannot be explained by a few factors. Additionally, it is important to note that since we projected our network we may have lost some information in the process as this network does not make a distinction between high levels of support towards resolutions that are in favor of Palestine and low levels.    
+
+
+```{r}
+#table with models
+texreg::screenreg(list(model1, model2))
+```
+
+
+```{r}
+# Same as model 2 but trying with constraints
+#model22 <-ergm::ergm(UNGA ~ edges + b2star(2),
+#                    constraints = ~bd(minout = 0, maxout = c(rep(7, 176), rep(Inf, 7))),
+#                    control = ergm::control.ergm(MCMC.burnin = 5000,
+#                                                 MCMC.samplesize = 50000,
+#                                                 seed = 123,
+#                                                 MCMLE.maxit = 50,
+ #                                                parallel = 3,
+ #                                                parallel.type = "PSOCK"))
+#summary(model22)
+```
+```{r}
+#ergm::mcmc.diagnostics(model22)
+```
+
+
+```{r}
+summary(UNGA ~ edges + b2star(2) + gwb1dsp)
+```
+
+
+
+gwb1dsp
+```{r}
+# Model 3. Adding gwb1dsp
+model3 <-ergm::ergm(UNGA ~ edges + b2star(2) + b1degree(0),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 15,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model3)
+```
+
+
+```{r}
+ergm::mcmc.diagnostics(model3)
+```
+
+
+
+
+
+```{r}
+#table with models
+texreg::screenreg(list(model1, model2, model3))
+```
+
+```{r}
+# MCMC diagnostics of model3
+ergm::mcmc.diagnostics(model3)
+```
+
+
+```{r}
+# Model 4. Adding democracy score
+model4 <-ergm::ergm(UNGA ~ edges + b2star(2) + 
+                      b1nodematch("democracy_score", diff=TRUE),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 50,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model4)
+```
+
+
+```{r}
+ergm::mcmc.diagnostics(model4)
+```
+
+
+```{r}
+# Model 5. Adding religion
+model5 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2star(3) + 
+                      b1cov("democracy_score") + b1nodematch("religion"),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 50,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model5)
+```
+
+
+Trying balanced religion:
+Muslim country - 1
+```{r}
+node_df$religion_balanced <- 
+  ifelse(node_df$largest_religion %in% 
+           c("anmggen", "budgen", "hindgen", "judgen", "nonrelig", 
+             "shntgen", "syncgen", "anmgen"),"other",
+         node_df$largest_religion)
+
+table(node_df$religion_balanced)
+
+#updating network covariate
+network::set.vertex.attribute(UNGA, "religion_b", node_df$religion_balanced)
+```
+
+
+```{r}
+#Same as model 5 but with more balanced religion
+model52 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2star(3) + 
+                      b1cov("democracy_score") + b1nodematch("religion_b"),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 50,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model52)
+```
+
+
+```{r}
+texreg::screenreg(list(model1, model2, model3, model4, model5))
+```
+
+
+If religion_b is still not significant, continue with `religion`.
+
+```{r}
+#Adding US Aid
+model6 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2star(3) + 
+                      b1cov("democracy_score") + b1nodematch("religion") + 
+                      b1cov("USAid"),
+                    control = ergm::control.ergm(MCMC.burnin = 10000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 15,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model6)
+```
+
+
+```{r}
+#Adding GDP
+model7 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2star(3) + 
+                      b1cov("democracy_score") + b1nodematch("religion") + 
+                      b1cov("USAid") + b1cov("GDP"),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 12,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model7)
+```
+
+
+```{r}
+#table with models
+texreg::screenreg(list(model1, model2, model3, model4, model5, model6, model7))
+```
+
+```{r}
+ergm::mcmc.diagnostics(model7)
+```
+
+
+
+```{r}
+#Adding gwb1nsp term
+model8 <-ergm::ergm(UNGA ~ edges + b2star(2) + b2sociality(nodes=-1) + 
+                      gwb1nsp(0, TRUE) + 
+                      b1cov("democracy_score") + b1nodematch("religion") + 
+                      b1cov("USAid") + b1cov("GDP"),
+                    control = ergm::control.ergm(MCMC.burnin = 5000,
+                                                 MCMC.samplesize = 50000,
+                                                 seed = 123,
+                                                 MCMLE.maxit = 50,
+                                                 parallel = 3,
+                                                 parallel.type = "PSOCK"))
+summary(model8)
+```
+
+
+
+
+# Trial
+
+```{r}
+mdata <- matrix(
+  c(1, 1, 1, 1,
+    1, 1, 0, 0,
+    1, 1, 1, 0,
+    1, 1, 0, 0,
+    1, 1, 0, 1,
+    0, 1, 1, 1,
+    0, 0, 1, 1,
+    1, 0, 1, 1,
+    0, 0, 1, 1,
+    0, 0, 1, 1), 
+  nrow = 10,  # Number of rows
+  ncol = 4,   # Number of columns
+  byrow = TRUE # Fill matrix row by row
+)
+
+# Print the matrix
+print(mdata)
+```
+
+
+```{r}
+kidsnet <- network::network(mdata, directed = FALSE, bipartite = TRUE)
+kidsnet
+```
+
+```{r}
+network::set.vertex.attribute(kidsnet, "bipartite", value = rep(10, 10), v = 1:10)
+kidsnet
+```
+
+```{r}
+# Degree partition 1 (kids)
+summary(kidsnet ~ b1degree(1:10))
+# Degree partition 2 (play-dates)
+summary(kidsnet ~ b2degree(1:10))
+```
+
+```{r}
+Age <- c(11, 11, 10, 12, 11, 10, 13, 11, 10, 12)
+
+network::set.vertex.attribute(kidsnet, "Age", Age, v = 1:10)
+#network::set.vertex.attribute(kidsnet, "bipartite", value = rep(10, 10), v = 1:10)
+network::get.vertex.attribute(kidsnet, "Age")
+```
+
+
+```{r}
+# Degree partition 1 (kids)
+summary(kidsnet ~ b1degree(1:10))
+# Degree partition 2 (play-dates)
+summary(kidsnet ~ b2degree(1:10))
+```
+
+
+
