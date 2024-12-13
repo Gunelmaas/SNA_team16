@@ -497,12 +497,12 @@ print(high_disbursement_country)
 
 filtered_df <- node_df[node_df$total_disbursements <= 2500000000, ]
 
-ggplot(filtered_df, aes(x = factor(if_islamic), y = total_disbursements)) +
+ggplot(node_df, aes(x = factor(if_islamic), y = total_disbursements)) +
   geom_boxplot(fill = "lightblue", outlier.color = "red", outlier.shape = 16) +
   labs(
-    x = "Islamic State Indicator",
+    x = "Islamic",
     y = "Total Disbursements",
-    title = "Comparison of Total Disbursements by Islamic Indicator"
+    title = "Total Disbursements by Islamic Indicator"
   )
 ```
 
@@ -511,14 +511,14 @@ One country (UKR) was found to receive significantly more disimbursements compar
 ```{r}
 filtered_df <- node_df[node_df$total_disbursements <= 2500000000, ]
 
-# make scatterplot of relationship between GDP and total disimbursement
+# make scatterplot of relationship between GDP and total disbursement
 ggplot(filtered_df, aes(x = gdp, y = total_disbursements)) +
   geom_point(color = "blue", alpha = 0.7) +
   geom_smooth(method = "lm", color = "red", se = TRUE) +
   labs(
     x = "GDP",
     y = "Total Disbursements",
-    title = "Scatterplot of GDP vs Total Disbursements"
+    title = "GDP vs Total Disbursements"
   )
 ```
 The scatterplot shows a negative relationship between a country's GDP and the total disbursements it receives. This means that as the GDP of a country increases, the total disbursements it receives tend to decrease, which makes sense as richer countries are generally less dependent on foreign aid. However, the relationship is not very strong, as indicated by the scattered points and the wide confidence interval. This suggests that other factors besides GDP may also influence the amount of disbursements a country receives.
